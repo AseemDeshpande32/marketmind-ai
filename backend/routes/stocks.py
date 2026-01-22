@@ -127,15 +127,22 @@ def search_stock():
         stock_data = {
             "symbol": ticker_id,
             "name": company_name,
-            "current_price": round(current_price, 2),
-            "price_change": price_change,
-            "price_change_percent": round(price_change_percent, 2),
-            "year_low": round(year_low, 2),
-            "year_high": round(year_high, 2),
+            "price": round(current_price, 2),
+            "change": price_change,
+            "changePercent": round(price_change_percent, 2),
+            "open": round(current_price, 2),  # Use current price as open (API doesn't provide separate open)
+            "high": round(year_high, 2) if year_high else round(current_price * 1.02, 2),  # Approximate
+            "low": round(year_low, 2) if year_low else round(current_price * 0.98, 2),  # Approximate
+            "volume": "N/A",  # Indian Stock API doesn't provide volume
+            "marketCap": f"₹{market_cap / 10000000:.2f}Cr" if market_cap else "N/A",  # Convert to Crores
+            "peRatio": round(pe_ratio, 2) if pe_ratio else None,
+            "week52High": round(year_high, 2) if year_high else None,
+            "week52Low": round(year_low, 2) if year_low else None,
             "currency": "INR",
             "industry": data.get("industry", ""),
-            "market_cap": round(market_cap, 2),
-            "pe_ratio": round(pe_ratio, 2)
+            "avgVolume": "N/A",  # Not provided by API
+            "beta": None,  # Not provided by API
+            "dividend": None  # Not provided by API
         }
         
         return jsonify(stock_data), 200

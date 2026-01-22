@@ -4,8 +4,9 @@ Handles news-related API endpoints
 """
 
 from flask import Blueprint, jsonify, request, current_app
-from services.news_service import get_news_service, NewsServiceError
+from services.newsapi_service import NewsAPIService
 import logging
+import traceback
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -18,34 +19,16 @@ news_bp = Blueprint("news", __name__, url_prefix="/api/news")
 def get_latest_news():
     """
     GET /api/news
-    Fetch latest stock market news from external API.
+    Fetch latest stock market news from NewsAPI.org.
     
     Query Parameters:
-        - category (optional): News category filter (e.g., 'stocks', 'markets')
         - limit (optional): Number of articles to return (default: 20, max: 100)
     
     Returns:
         JSON response with news articles
-        
-    Example Response:
-        {
-            "success": true,
-            "data": [
-                {
-                    "title": "Stock Market Hits All-Time High",
-                    "description": "Markets surge as investors...",
-                    "source": "Economic Times",
-                    "url": "https://...",
-                    "published_at": "2026-01-22T10:30:00",
-                    "image_url": "https://..."
-                }
-            ],
-            "count": 15
-        }
     """
     try:
         # Get query parameters
-        category = request.args.get("category", type=str)
         limit = request.args.get("limit", default=20, type=int)
         
         # Validate limit
@@ -55,52 +38,44 @@ def get_latest_news():
                 "error": "Limit must be between 1 and 100"
             }), 400
         
-        # Get news service instance
-        news_service = get_news_service(
-            api_key=current_app.config.get("NEWS_API_KEY"),
-            api_url=current_app.config.get("NEWS_API_URL")
-        )
+        # Get NewsAPI key from config
+        newsapi_key = current_app.config.get("NEWSAPI_KEY")
+        if not newsapi_key:
+            return jsonify({
+                "success": False,
+                "error": "NewsAPI key not configured"
+            }), 500
         
-        # Fetch news from external API
-        result = news_service.fetch_latest_news(
-            category=category,
-            limit=limit
-        )
+        # Get news from NewsAPI.org
+        news_service = NewsAPIService(newsapi_key)
+        result = news_service.fetch_latest_news(limit=limit)
         
-        # Return response based on service result
+        # Return response
         if result["success"]:
             status_code = 200
         else:
-            # Service returned an error but handled gracefully
-            status_code = 503 if "unavailable" in result.get("error", "").lower() else 500
+            status_code = 503
         
         return jsonify(result), status_code
     
     except ValueError as e:
         # Configuration error
         logger.error(f"Configuration error: {str(e)}")
+        logger.error(traceback.format_exc())
         return jsonify({
             "success": False,
             "error": "News service is not configured properly",
-            "message": "Please contact system administrator"
-        }), 500
-    
-    except NewsServiceError as e:
-        # Custom service error
-        logger.error(f"News service error: {str(e)}")
-        return jsonify({
-            "success": False,
-            "error": "Failed to fetch news",
             "message": str(e)
         }), 500
     
     except Exception as e:
         # Unexpected error
         logger.error(f"Unexpected error in news route: {str(e)}")
+        logger.error(traceback.format_exc())
         return jsonify({
             "success": False,
             "error": "An unexpected error occurred",
-            "message": "Please try again later"
+            "message": str(e)
         }), 500
 
 

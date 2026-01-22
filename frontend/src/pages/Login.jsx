@@ -1,11 +1,14 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { FiMail, FiLock, FiTrendingUp, FiEye, FiEyeOff } from 'react-icons/fi'
+import { login } from '../services/authService'
 import './Auth.css'
 
 const Login = () => {
   const navigate = useNavigate()
   const [showPassword, setShowPassword] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
   const [formData, setFormData] = useState({
     email: '',
     password: ''
@@ -16,13 +19,29 @@ const Login = () => {
       ...formData,
       [e.target.name]: e.target.value
     })
+    setError('') // Clear error when user types
   }
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault()
-    // Add authentication logic here
-    console.log('Login:', formData)
-    navigate('/dashboard')
+    setLoading(true)
+    setError('')
+
+    try {
+      const result = await login(formData.email, formData.password)
+      
+      if (result.success) {
+        // Login successful, navigate to dashboard
+        navigate('/dashboard')
+      } else {
+        // Show error message
+        setError(result.error || 'Login failed. Please try again.')
+      }
+    } catch (err) {
+      setError('An unexpected error occurred. Please try again.')
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
@@ -86,8 +105,21 @@ const Login = () => {
               <a href="#" className="forgot-link">Forgot password?</a>
             </div>
 
-            <button type="submit" className="auth-submit">
-              Sign In
+            {error && (
+              <div className="error-message" style={{
+                padding: '10px',
+                marginBottom: '15px',
+                backgroundColor: '#fee',
+                color: '#c33',
+                borderRadius: '5px',
+                fontSize: '14px'
+              }}>
+                {error}
+              </div>
+            )}
+
+            <button type="submit" className="auth-submit" disabled={loading}>
+              {loading ? 'Signing In...' : 'Sign In'}
             </button>
           </form>
 

@@ -8,12 +8,14 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from flask_jwt_extended import JWTManager
 from flask_cors import CORS
+from flask_socketio import SocketIO
 from config import Config
 
 # Initialize extensions
 db = SQLAlchemy()
 migrate = Migrate()
 jwt = JWTManager()
+socketio = SocketIO(cors_allowed_origins="*", async_mode="threading")
 
 
 def create_app(config_class=Config):
@@ -44,6 +46,13 @@ def create_app(config_class=Config):
     app.register_blueprint(auth_bp)
     app.register_blueprint(stocks_bp)
     app.register_blueprint(news_bp)
+
+    # Initialize SocketIO with the app and WebSocket service
+    socketio.init_app(app)
+    from services.websocket_service import websocket_service
+    websocket_service.init_app(socketio)
+    from routes.websocket_events import register_events
+    register_events(socketio)
 
     # Health check endpoint
     @app.route("/")

@@ -1,0 +1,88 @@
+.historical-chart {
+  width: 100%;
+  height: 400px;
+}
+
+.chart-loading,
+.chart-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 400px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 12px;
+}
+
+.chart-loading .spinner {
+  width: 40px;
+  height: 40px;
+  border: 4px solid rgba(255, 255, 255, 0.1);
+  border-top-color: #00d4ff;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin-bottom: 1rem;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.chart-loading p,
+.chart-error p {
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 0.95rem;
+}
+
+.chart-error p {
+  color: #ff4444;
+}
+
+.custom-tooltip {
+  background: rgba(26, 26, 46, 0.95);
+  border: 1px solid rgba(0, 212, 255, 0.3);
+  border-radius: 8px;
+  padding: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.tooltip-date {
+  font-weight: 600;
+  color: #00d4ff;
+  margin-bottom: 8px;
+  font-size: 0.9rem;
+}
+
+.tooltip-item {
+  display: flex;
+  justify-content: space-between;
+  margin: 4px 0;
+  font-size: 0.85rem;
+}
+
+.tooltip-label {
+  color: rgba(255, 255, 255, 0.7);
+  margin-right: 12px;
+}
+
+.tooltip-value {
+  color: #ffffff;
+  font-weight: 500;
+}
+
+.tooltip-value.high {
+  color: #00ff88;
+}
+
+.tooltip-value.low {
+  color: #ff4444;
+}
+
+/* Recharts legend styling */
+.recharts-legend-wrapper {
+  color: rgba(255, 255, 255, 0.8) !important;
+}
+
+.recharts-legend-item-text {
+  color: rgba(255, 255, 255, 0.8) !important;
+}

@@ -111,10 +111,26 @@
   color: #00d4ff;
 }
 
-.chart-placeholder {
+.chart-placeholder,
+.chart-container {
   background: rgba(0, 0, 0, 0.2);
   border-radius: 12px;
   padding: 1.5rem;
+}
+
+.chart-container {
+  padding: 1rem;
+  min-height: 400px;
+}
+
+.tradingview-widget-container {
+  height: 400px;
+  width: 100%;
+}
+
+#tradingview_chart {
+  height: 100%;
+  width: 100%;
 }
 
 .stock-chart {
@@ -232,4 +248,62 @@
   .stats-grid {
     grid-template-columns: repeat(2, 1fr);
   }
+}
+
+/* Loading and Error States */
+.loading-container,
+.error-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 400px;
+  text-align: center;
+  padding: 3rem;
+}
+
+.spinner {
+  width: 50px;
+  height: 50px;
+  border: 4px solid rgba(255, 255, 255, 0.1);
+  border-top-color: #00d4ff;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.loading-container p {
+  margin-top: 1rem;
+  color: #a0a0b0;
+  font-size: 1.1rem;
+}
+
+.error-container h2 {
+  color: #ff5555;
+  margin-bottom: 1rem;
+}
+
+.error-container p {
+  color: #a0a0b0;
+  margin-bottom: 2rem;
+}
+
+.error-container button {
+  padding: 0.75rem 2rem;
+  background: linear-gradient(135deg, #00d4ff 0%, #7c3aed 100%);
+  border: none;
+  border-radius: 10px;
+  color: white;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.2s;
+}
+
+.error-container button:hover {
+  transform: translateY(-2px);
 }

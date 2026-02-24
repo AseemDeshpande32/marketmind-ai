@@ -1,11 +1,14 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { FiMail, FiLock, FiUser, FiTrendingUp, FiEye, FiEyeOff } from 'react-icons/fi'
+import { register } from '../services/authService'
 import './Auth.css'
 
 const Register = () => {
   const navigate = useNavigate()
   const [showPassword, setShowPassword] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
   const [formData, setFormData] = useState({
     fullName: '',
     email: '',
@@ -18,17 +21,37 @@ const Register = () => {
       ...formData,
       [e.target.name]: e.target.value
     })
+    setError('') // Clear error when user types
   }
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault()
+    setLoading(true)
+    setError('')
+
+    // Validate passwords match
     if (formData.password !== formData.confirmPassword) {
-      alert('Passwords do not match!')
+      setError('Passwords do not match!')
+      setLoading(false)
       return
     }
-    // Add registration logic here
-    console.log('Register:', formData)
-    navigate('/dashboard')
+
+    try {
+      const result = await register(formData.fullName, formData.email, formData.password)
+      
+      if (result.success) {
+        // Registration successful, redirect to login
+        alert('Registration successful! Please login.')
+        navigate('/login')
+      } else {
+        // Show error message
+        setError(result.error || 'Registration failed. Please try again.')
+      }
+    } catch (err) {
+      setError('An unexpected error occurred. Please try again.')
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
@@ -123,8 +146,21 @@ const Register = () => {
               </label>
             </div>
 
-            <button type="submit" className="auth-submit">
-              Create Account
+            {error && (
+              <div className="error-message" style={{
+                padding: '10px',
+                marginBottom: '15px',
+                backgroundColor: '#fee',
+                color: '#c33',
+                borderRadius: '5px',
+                fontSize: '14px'
+              }}>
+                {error}
+              </div>
+            )}
+
+            <button type="submit" className="auth-submit" disabled={loading}>
+              {loading ? 'Creating Account...' : 'Create Account'}
             </button>
           </form>
 

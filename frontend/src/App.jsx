@@ -1,4 +1,6 @@
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
+import { useEffect } from 'react'
+import { initializeTheme } from './services/settingsService'
 import LandingPage from './pages/LandingPage'
 import Login from './pages/Login'
 import Register from './pages/Register'
@@ -11,6 +13,11 @@ import Layout from './components/Layout'
 import './App.css'
 
 function App() {
+  // Initialize theme on app load
+  useEffect(() => {
+    initializeTheme()
+  }, [])
+
   return (
     <Router>
       <Routes>

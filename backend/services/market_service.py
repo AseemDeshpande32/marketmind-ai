@@ -1,297 +1,242 @@
 """
-5paisa Market Data Service
-Provides market snapshot and live data functionality
+Market Service - wraps 5paisa Snapshot and Historical Candles APIs
 """
+
 import os
 import json
 import requests
-from typing import Dict, Any, Optional
+from datetime import datetime, timedelta
+from typing import Dict, Any, List, Optional
 from dotenv import load_dotenv
 
 load_dotenv()
 
+SNAPSHOT_URL = "https://Openapi.5paisa.com/VendorsAPI/Service1.svc/V1/MarketSnapshot"
+# V2 REST GET endpoint — no DNS issues, supports bearer auth
+HISTORICAL_BASE = "https://openapi.5paisa.com/V2/historical"
+TOKEN_FILE = "token_store.json"
 
-class MarketDataService:
-    """Service class for 5paisa market data operations"""
-    
-    def __init__(self):
-        self.token_file = "token_store.json"
-        self.api_base_url = "https://Openapi.5paisa.com/VendorsAPI/Service1.svc"
-        self.app_key = os.getenv("APP_KEY")
-        
-    def load_credentials(self) -> Dict[str, str]:
-        """Load access token and client code from token_store.json"""
-        try:
-            with open(self.token_file, "r") as f:
-                data = json.load(f)
-            
-            access_token = data.get("access_token")
-            client_code = data.get("client_code")
-            
-            if not access_token or not client_code:
-                raise ValueError("Missing credentials in token_store.json")
-            
-            return {
-                "access_token": access_token,
-                "client_code": client_code
-            }
-        except FileNotFoundError:
-            raise FileNotFoundError("token_store.json not found. Run 5paisa_auth.py first")
-        except json.JSONDecodeError:
-            raise ValueError("Invalid JSON in token_store.json")
-    
-    def get_market_snapshot(self, scrip_code: int, exchange: str = "N", 
-                           exchange_type: str = "C") -> Dict[str, Any]:
-        """
-        Fetch market snapshot for a specific stock
-        
-        Args:
-            scrip_code: Stock scrip code (e.g., 1660 for Reliance)
-            exchange: Exchange code (N=NSE, B=BSE)
-            exchange_type: Type (C=Cash, D=Derivative)
-            
-        Returns:
-            Dictionary with market data
-        """
-        # Load credentials
-        credentials = self.load_credentials()
-        access_token = credentials["access_token"]
-        client_code = credentials["client_code"]
-        
-        if not self.app_key:
-            raise ValueError("APP_KEY not found in environment")
-        
-        # Prepare request
-        api_url = f"{self.api_base_url}/V1/MarketSnapshot"
-        
-        headers = {
-            "Authorization": f"Bearer {access_token}",
-            "Content-Type": "application/json"
-        }
-        
-        payload = {
-            "head": {
-                "key": self.app_key
-            },
-            "body": {
-                "ClientCode": client_code,
-                "Data": [
-                    {
-                        "Exchange": exchange,
-                        "ExchangeType": exchange_type,
-                        "ScripCode": scrip_code
-                    }
-                ]
-            }
-        }
-        
-        # Make request
-        try:
-            response = requests.post(api_url, headers=headers, json=payload, timeout=30)
-        except requests.exceptions.RequestException as e:
-            raise Exception(f"Failed to connect to 5paisa API: {str(e)}")
-        
-        if response.status_code != 200:
-            raise Exception(f"API error (status {response.status_code}): {response.text}")
-        
-        # Parse response
-        try:
-            response_data = response.json()
-        except json.JSONDecodeError:
-            raise Exception(f"Invalid JSON response: {response.text}")
-        
-        # Check for API errors
-        body = response_data.get("body", {})
-        if body.get("Status") == -1:
-            error_msg = body.get("Message", "Unknown error")
-            raise Exception(f"API error: {error_msg}")
-        
-        return response_data
-    
-    def format_stock_data(self, api_response: Dict[str, Any], scrip_code: int) -> Optional[Dict[str, Any]]:
-        """
-        Format 5paisa API response to match frontend expectations
-        
-        Args:
-            api_response: Raw API response from get_market_snapshot
-            scrip_code: Stock scrip code
-            
-        Returns:
-            Formatted stock data dictionary
-        """
-        try:
-            body = api_response.get("body", {})
-            data_array = body.get("Data", [])
-            
-            if not data_array:
-                return None
-            
-            market_data = data_array[0]
-            
-            # Extract values
-            last_price = float(market_data.get("LastTradedPrice", 0))
-            open_price = float(market_data.get("Open", 0))
-            high_price = float(market_data.get("High", 0))
-            low_price = float(market_data.get("Low", 0))
-            prev_close = float(market_data.get("PClose", 0))
-            net_change = float(market_data.get("NetChange", 0))
-            volume = market_data.get("Volume", "0")
-            year_high = float(market_data.get("AHigh", 0))
-            year_low = float(market_data.get("ALow", 0))
-            
-            # Calculate change percentage
-            change_percent = (net_change / prev_close * 100) if prev_close else 0
-            
-            # Convert volume to integer
+# Interval map: frontend value → 5paisa V2 API value
+INTERVAL_MAP = {
+    "1m":  "1m",  "1M":  "1m",
+    "5m":  "5m",  "5M":  "5m",
+    "15m": "15m", "15M": "15m",
+    "30m": "30m", "30M": "30m",
+    "60m": "60m",
+    "1H":  "60m", "1h":  "60m",
+    "1d":  "1d",  "1D":  "1d",
+    "1w":  "1w",  "1W":  "1w",
+}
+
+
+def _load_credentials() -> Dict[str, str]:
+    try:
+        with open(TOKEN_FILE, "r") as f:
+            data = json.load(f)
+        access_token = data.get("access_token")
+        client_code  = data.get("client_code")
+        if not access_token or not client_code:
+            raise ValueError("access_token or client_code missing in token_store.json")
+        return {"access_token": access_token, "client_code": client_code}
+    except FileNotFoundError:
+        raise FileNotFoundError("token_store.json not found. Run 5paisa_auth.py first.")
+
+
+def get_market_snapshot(scrip_code: int, exchange: str = "N", exchange_type: str = "C") -> Dict[str, Any]:
+    """Fetch real-time snapshot for a single stock from 5paisa."""
+    credentials = _load_credentials()
+    app_key = os.getenv("APP_KEY")
+    if not app_key:
+        raise ValueError("APP_KEY not found in .env")
+
+    headers = {
+        "Authorization": f"Bearer {credentials['access_token']}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "head": {"key": app_key},
+        "body": {
+            "ClientCode": credentials["client_code"],
+            "Data": [
+                {
+                    "Exchange": exchange,
+                    "ExchangeType": exchange_type,
+                    "ScripCode": scrip_code,
+                }
+            ],
+        },
+    }
+
+    response = requests.post(SNAPSHOT_URL, headers=headers, json=payload, timeout=15)
+    if response.status_code != 200:
+        raise Exception(f"5paisa snapshot API error: {response.status_code} - {response.text}")
+    return response.json()
+
+
+def format_stock_data(api_response: Dict[str, Any], scrip_code: int) -> Optional[Dict[str, Any]]:
+    """
+    Format the raw 5paisa snapshot response into a clean dict for the frontend.
+    Returns None if no data was found.
+    """
+    try:
+        body = api_response.get("body", {})
+        data_array = body.get("Data", [])
+        if not data_array:
+            return None
+
+        d = data_array[0]  # first (and only) item
+
+        def sf(val, default=0.0):
             try:
-                volume_int = int(float(volume))
+                return float(val) if val is not None else default
             except (ValueError, TypeError):
-                volume_int = 0
-            
-            # Format response
-            return {
-                "symbol": str(scrip_code),
-                "name": f"ScripCode {scrip_code}",  # Can be enhanced with scrip name mapping
-                "price": round(last_price, 2),
-                "change": round(net_change, 2),
-                "changePercent": round(change_percent, 2),
-                "open": round(open_price, 2),
-                "high": round(high_price, 2),
-                "low": round(low_price, 2),
-                "volume": volume_int,
-                "prevClose": round(prev_close, 2),
-                "week52High": round(year_high, 2),
-                "week52Low": round(year_low, 2),
-                "currency": "INR",
-                "exchange": market_data.get("Exchange", "N"),
-                "exchangeType": market_data.get("ExchangeType", "C"),
-                "upperCircuit": float(market_data.get("UpperCircuitLimit", 0)),
-                "lowerCircuit": float(market_data.get("LowerCircuitLimit", 0))
-            }
-            
-        except Exception as e:
-            raise Exception(f"Error formatting data: {str(e)}")
-    
-    def get_historical_data(self, scrip_code: int, exchange: str = "N",
-                           exchange_type: str = "C", from_date: str = None,
-                           to_date: str = None, interval: str = "1d") -> Dict[str, Any]:
-        """
-        Fetch historical candle data using the 5paisa V2 REST API.
-        
-        Endpoint: GET https://openapi.5paisa.com/V2/historical/{Exch}/{ExchType}/{ScripCode}/{Interval}
-                       ?from={FromDate}&end={EndDate}
-        
-        Args:
-            scrip_code:    Stock scrip code (e.g., 2885 for Reliance)
-            exchange:      Exchange code  — N (NSE) or B (BSE)
-            exchange_type: Exchange type  — C (Cash) or D (Derivatives)
-            from_date:     Start date YYYY-MM-DD  (defaults based on interval)
-            to_date:       End date   YYYY-MM-DD  (defaults to today)
-            interval:      Candle interval — 1m, 5m, 10m, 15m, 30m, 60m, 1d
-        """
-        from datetime import datetime, timedelta
+                return default
 
-        # Normalise interval value coming from frontend (e.g. "60" -> "60m", "D" -> "1d")
-        interval_map = {
-            "1": "1m", "5": "5m", "10": "10m", "15": "15m",
-            "30": "30m", "60": "60m", "D": "1d", "1d": "1d",
-            "1m": "1m", "5m": "5m", "10m": "10m", "15m": "15m",
-            "30m": "30m", "60m": "60m",
+        last_rate  = sf(d.get("LastTradedPrice") or d.get("LastRate"))
+        prev_close = sf(d.get("PClose"))
+        open_rate  = sf(d.get("Open") or d.get("OpenRate"))
+        high       = sf(d.get("High"))
+        low        = sf(d.get("Low"))
+        volume     = int(sf(d.get("Volume") or d.get("TotalQty"), 0))
+        change     = last_rate - prev_close
+        change_pct = (change / prev_close * 100) if prev_close else 0
+
+        return {
+            "scripCode":    scrip_code,
+            "price":        round(last_rate, 2),
+            "prevClose":    round(prev_close, 2),
+            "open":         round(open_rate, 2),
+            "high":         round(high, 2),
+            "low":          round(low, 2),
+            "volume":       volume,
+            "change":       round(change, 2),
+            "changePercent": round(change_pct, 2),
+            "upperCircuit": sf(d.get("UpperCircuitLimit") or d.get("UpperLimit")) or None,
+            "lowerCircuit": sf(d.get("LowerCircuitLimit") or d.get("LowerLimit")) or None,
+            "exchange":     d.get("Exchange", d.get("Exch", "N")),
         }
-        api_interval = interval_map.get(interval, "1d")
+    except Exception as e:
+        print(f"[MARKET] ERROR in format_stock_data: {e}")
+        return None
 
-        # Smart default date ranges based on interval
-        today = datetime.now()
-        if not to_date:
-            to_dt = today
+
+def get_historical_data(
+    scrip_code: int,
+    exchange: str = "N",
+    exchange_type: str = "C",
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
+    interval: str = "1d",
+) -> Dict[str, Any]:
+    """
+    Fetch historical OHLCV candles from 5paisa V2 REST API.
+    GET /V2/historical/{Exch}/{ExchType}/{ScripCode}/{Interval}?from=YYYY-MM-DD&end=YYYY-MM-DD
+    """
+    credentials = _load_credentials()
+
+    today = datetime.today()
+    if not to_date:
+        to_date = today.strftime("%Y-%m-%d")
+    if not from_date:
+        if interval in ("1m", "5m", "15m", "30m"):
+            delta = timedelta(days=5)
+        elif interval in ("60m", "1H", "1h"):
+            delta = timedelta(days=30)
         else:
-            to_dt = datetime.strptime(to_date, "%Y-%m-%d")
+            delta = timedelta(days=365)
+        from_date = (today - delta).strftime("%Y-%m-%d")
 
-        if not from_date:
-            if api_interval == "1m":
-                from_dt = to_dt - timedelta(days=5)
-            elif api_interval in ("5m", "10m", "15m"):
-                from_dt = to_dt - timedelta(days=30)
-            elif api_interval in ("30m", "60m"):
-                from_dt = to_dt - timedelta(days=90)
-            else:  # 1d
-                from_dt = to_dt - timedelta(days=180)
-        else:
-            from_dt = datetime.strptime(from_date, "%Y-%m-%d")
+    api_interval = INTERVAL_MAP.get(interval, "1d")
+    url = f"{HISTORICAL_BASE}/{exchange}/{exchange_type}/{scrip_code}/{api_interval}"
 
-        from_str = from_dt.strftime("%Y-%m-%d")
-        to_str   = to_dt.strftime("%Y-%m-%d")
+    headers = {
+        # V2 endpoint requires lowercase 'bearer'
+        "Authorization": f"bearer {credentials['access_token']}",
+        "Content-Type": "application/json",
+    }
+    params = {"from": from_date, "end": to_date}
 
-        # Load credentials
-        credentials = self.load_credentials()
-        access_token = credentials["access_token"]
+    print(f"[HIST] GET {url} params={params}")
+    response = requests.get(url, headers=headers, params=params, timeout=30)
+    print(f"[HIST] status={response.status_code} body={response.text[:300]}")
 
-        # Build URL:  /V2/historical/{Exch}/{ExchType}/{ScripCode}/{Interval}
-        api_url = (
-            f"https://openapi.5paisa.com/V2/historical"
-            f"/{exchange}/{exchange_type}/{scrip_code}/{api_interval}"
-            f"?from={from_str}&end={to_str}"
-        )
+    if response.status_code == 401:
+        raise Exception("Token expired — run 5paisa_auth.py to refresh")
+    if response.status_code != 200:
+        raise Exception(f"5paisa historical API error: {response.status_code} - {response.text}")
+    return response.json()
 
-        headers = {
-            "Authorization": f"bearer {access_token}",
-            "Content-Type": "application/json",
-        }
 
-        try:
-            response = requests.get(api_url, headers=headers, timeout=30)
-        except requests.exceptions.RequestException as e:
-            raise Exception(f"Failed to connect to 5paisa API: {str(e)}")
+def format_historical_data(api_response: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """
+    Parse V2 historical response.
+    V2 format: { "status": "success", "data": { "candles": [[timestamp, O, H, L, C, V], ...] } }
+    timestamp is ISO string e.g. "2022-07-15T09:15:00"
+    """
+    try:
+        # V2 REST response
+        data = api_response.get("data", {})
+        raw_candles = data.get("candles", [])
 
-        if response.status_code == 401:
-            raise FileNotFoundError("Invalid or expired access token")
-        if response.status_code != 200:
-            raise Exception(f"API error (status {response.status_code}): {response.text[:300]}")
-
-        try:
-            response_data = response.json()
-        except json.JSONDecodeError:
-            raise Exception(f"Invalid JSON response: {response.text[:300]}")
-
-        # Failure response has head.Status == 1
-        head = response_data.get("head", {})
-        if head.get("Status") == 1:
-            raise Exception(f"5paisa API error: {head.get('Status_description', 'Unknown error')}")
-
-        return response_data
-
-    def format_historical_data(self, api_response: Dict[str, Any]) -> list:
-        """
-        Format 5paisa V2 historical response for charting.
-        API returns candles as arrays: [timestamp, open, high, low, close, volume]
-        """
-        try:
-            data = api_response.get("data", {})
-            candles_raw = data.get("candles", [])
-
-            if not candles_raw:
-                return []
-
-            formatted = []
-            for c in candles_raw:
-                # c = ["2022-07-15T00:00:00", open, high, low, close, volume]
-                timestamp = c[0]  # ISO string e.g. "2022-07-15T09:15:00"
-                formatted.append({
-                    "time":   timestamp,        # keep ISO — frontend converts as needed
-                    "open":   float(c[1]),
-                    "high":   float(c[2]),
-                    "low":    float(c[3]),
-                    "close":  float(c[4]),
-                    "volume": int(c[5]) if len(c) > 5 else 0,
+        # Fallback: old VendorsAPI format
+        if not raw_candles:
+            body = api_response.get("body", {})
+            old_candles = body.get("Data", [])
+            result = []
+            for c in old_candles:
+                dt_str = c.get("DateTime", "")
+                try:
+                    time_val = int(datetime.fromisoformat(dt_str).timestamp())
+                except Exception:
+                    time_val = 0
+                result.append({
+                    "time":   time_val,
+                    "open":   float(c.get("Open",   0)),
+                    "high":   float(c.get("High",   0)),
+                    "low":    float(c.get("Low",    0)),
+                    "close":  float(c.get("Close",  0)),
+                    "volume": int(float(c.get("Volume", 0))),
                 })
+            return result
 
-            # Ensure ascending order
-            formatted.sort(key=lambda x: x["time"])
-            return formatted
+        result = []
+        for c in raw_candles:
+            # c = ["2022-07-15T09:15:00", open, high, low, close, volume]
+            try:
+                time_val = int(datetime.fromisoformat(c[0]).timestamp())
+            except Exception:
+                time_val = 0
+            result.append({
+                "time":   time_val,
+                "open":   float(c[1]),
+                "high":   float(c[2]),
+                "low":    float(c[3]),
+                "close":  float(c[4]),
+                "volume": int(float(c[5])) if len(c) > 5 else 0,
+            })
+        return result
 
-        except Exception as e:
-            raise Exception(f"Error formatting historical data: {str(e)}")
+    except Exception as e:
+        print(f"[MARKET] ERROR in format_historical_data: {e}")
+        return []
 
 
-# Singleton instance
-market_service = MarketDataService()
+# ── Singleton-style module-level instance ────────────────────────────────────
+class MarketService:
+    """Thin class wrapper so routes can do `from services.market_service import market_service`"""
+
+    def get_market_snapshot(self, scrip_code, exchange="N", exchange_type="C"):
+        return get_market_snapshot(scrip_code, exchange, exchange_type)
+
+    def format_stock_data(self, api_response, scrip_code):
+        return format_stock_data(api_response, scrip_code)
+
+    def get_historical_data(self, scrip_code, exchange="N", exchange_type="C",
+                            from_date=None, to_date=None, interval="1d"):
+        return get_historical_data(scrip_code, exchange, exchange_type, from_date, to_date, interval)
+
+    def format_historical_data(self, api_response):
+        return format_historical_data(api_response)
+
+
+market_service = MarketService()

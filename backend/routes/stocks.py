@@ -1,285 +1,234 @@
 """
 Stock Search API Blueprint for MarketMind AI
-Handles real-time stock data fetching from Indian Stock Market API
+Handles real-time stock data fetching from 5paisa API
 """
 
 import os
-import requests # type: ignore
+import sys
 from flask import Blueprint, request, jsonify
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from services.market_service import market_service
+from services.script_master_service import script_master_service
 
 # Create stocks blueprint with /api/stocks prefix
 stocks_bp = Blueprint("stocks", __name__, url_prefix="/api/stocks")
 
-# External API configuration - Indian Stock Market API
-STOCK_API_KEY = os.getenv("STOCK_API_KEY")
-STOCK_API_BASE_URL = "https://stock.indianapi.in"
 
+def _safe_float(value, default=0.0):
+    try:
+        return float(value) if value is not None else default
+    except (ValueError, TypeError):
+        return default
+
+
+def _snapshot_to_dict(symbol, scrip_code, market_data, exchange="NSE"):
+    last_rate  = _safe_float(market_data.get("LastTradedPrice") or market_data.get("LastRate"))
+    open_rate  = _safe_float(market_data.get("Open") or market_data.get("OpenRate"))
+    high       = _safe_float(market_data.get("High"))
+    low        = _safe_float(market_data.get("Low"))
+    prev_close = _safe_float(market_data.get("PClose"))
+    volume     = _safe_float(market_data.get("Volume") or market_data.get("TotalQty"), 0)
+    price_change = last_rate - prev_close
+    pct = (price_change / prev_close * 100) if prev_close else 0
+    return {
+        "symbol":        symbol,
+        "name":          market_data.get("Name", symbol),
+        "scripCode":     scrip_code,
+        "price":         round(last_rate, 2),
+        "change":        round(price_change, 2),
+        "changePercent": round(pct, 2),
+        "open":          round(open_rate, 2),
+        "high":          round(high, 2),
+        "low":           round(low, 2),
+        "prevClose":     round(prev_close, 2),
+        "volume":        int(volume),
+        "exchange":      exchange,
+        "currency":      "INR",
+        "lastUpdated":   market_data.get("LastUpdateTime", ""),
+    }
+
+
+# ─── /search ─────────────────────────────────────────────────────────────────
 
 @stocks_bp.route("/search", methods=["GET"])
 def search_stock():
-    """
-    Search for Indian stock by symbol and return real-time data.
-    
-    Query Parameters:
-        - symbol: str (required) - Stock ticker symbol (e.g., TCS, RELIANCE, INFY)
-    
-    Returns:
-        - 200: Stock data with price, change, and company info
-        - 400: Missing or invalid symbol
-        - 404: Stock not found
-        - 502: External API error
-    
-    Example:
-        GET /api/stocks/search?symbol=TCS
-    """
-    
-    # Step 1: Validate API key is configured
-    if not STOCK_API_KEY:
-        return jsonify({
-            "error": "Stock API key not configured",
-            "message": "Please set STOCK_API_KEY in environment variables"
-        }), 500
-    
-    # Step 2: Extract and validate stock symbol from query parameter
-    symbol = request.args.get("symbol", "").strip().upper()
-    
-    if not symbol:
-        return jsonify({
-            "error": "Missing stock symbol",
-            "message": "Please provide a stock symbol in query parameter"
-        }), 400
-    
-    try:
-        # Step 3: Fetch real-time stock data from Indian Stock Market API
-        # Endpoint format: /stock?symbol=TCS&apikey=YOUR_API_KEY
-        stock_url = f"{STOCK_API_BASE_URL}/stock"
-        
-        headers = {
-            "X-Api-Key": STOCK_API_KEY,
-            "Content-Type": "application/json"
-        }
-        
-        params = {
-            "name": symbol  # Indian Stock API uses 'name' parameter
-        }
-        
-        response = requests.get(stock_url, headers=headers, params=params, timeout=15)
-        response.raise_for_status()  # Raise error for bad status codes
-        
-        data = response.json()
-        
-        # Step 4: Check if API returned valid data
-        if not data or "error" in data:
-            return jsonify({
-                "error": "Stock not found",
-                "message": f"No data found for symbol '{symbol}'. Please check if the symbol is correct."
-            }), 404
-        
-        # Step 5: Extract stock information from API response
-        # Indian Stock Market API field mapping (camelCase)
-        
-        # Helper function to safely extract numeric values
-        def safe_float(value, default=0):
-            if value is None:
-                return default
-            if isinstance(value, (int, float)):
-                return float(value)
-            if isinstance(value, dict):
-                # If it's a dict with exchange prices, prefer NSE
-                if 'NSE' in value:
-                    return safe_float(value['NSE'], default)
-                elif 'BSE' in value:
-                    return safe_float(value['BSE'], default)
-                return default
-            if isinstance(value, str):
-                try:
-                    return float(value)
-                except ValueError:
-                    return default
-            return default
-        
-        # Extract main fields
-        current_price_data = data.get("currentPrice")
-        current_price = safe_float(current_price_data)  # Will extract NSE or BSE price
-        
-        price_change_percent = safe_float(data.get("percentChange"))
-        year_low = safe_float(data.get("yearLow"))
-        year_high = safe_float(data.get("yearHigh"))
-        company_name = data.get("companyName", symbol)
-        
-        # Calculate price change from percentage if current price available
-        price_change = round((current_price * price_change_percent) / 100, 2) if current_price else 0
-        
-        # Get additional data from stockDetailsReusableData
-        stock_details = data.get("stockDetailsReusableData", {})
-        
-        # Extract market cap and PE ratio
-        market_cap = 0
-        pe_ratio = 0
-        ticker_id = symbol
-        
-        if isinstance(stock_details, dict):
-            market_cap = safe_float(stock_details.get("marketCap", 0))
-            pe_ratio = safe_float(stock_details.get("pPerEBasicExcludingExtraordinaryItemsTTM", 0))
-            ticker_id = stock_details.get("tickerId", symbol)
-        
-        # Step 6: Build clean response for frontend
-        stock_data = {
-            "symbol": ticker_id,
-            "name": company_name,
-            "current_price": round(current_price, 2),
-            "price_change": price_change,
-            "price_change_percent": round(price_change_percent, 2),
-            "year_low": round(year_low, 2),
-            "year_high": round(year_high, 2),
-            "currency": "INR",
-            "industry": data.get("industry", ""),
-            "market_cap": round(market_cap, 2),
-            "pe_ratio": round(pe_ratio, 2)
-        }
-        
-        return jsonify(stock_data), 200
-        
-    except requests.exceptions.Timeout:
-        # Handle timeout errors
-        return jsonify({
-            "error": "Request timeout",
-            "message": "Stock API request timed out. Please try again."
-        }), 502
-        
-    except requests.exceptions.HTTPError as e:
-        # Handle HTTP errors (401, 403, etc.)
-        status_code = e.response.status_code if e.response else 502
-        
-        if status_code == 401:
-            return jsonify({
-                "error": "Authentication failed",
-                "message": "Invalid API key. Please check your STOCK_API_KEY."
-            }), 502
-        elif status_code == 429:
-            return jsonify({
-                "error": "Rate limit exceeded",
-                "message": "Too many requests. Please try again later."
-            }), 502
-        else:
-            return jsonify({
-                "error": "External API error",
-                "message": f"Stock API returned error: {status_code}"
-            }), 502
-        
-    except requests.exceptions.RequestException as e:
-        # Handle network/API errors
-        return jsonify({
-            "error": "External API error",
-            "message": f"Failed to fetch stock data: {str(e)}"
-        }), 502
-        
-    except (ValueError, KeyError) as e:
-        # Handle JSON parsing or missing key errors
-        return jsonify({
-            "error": "Invalid API response",
-            "message": "Failed to parse stock data from API"
-        }), 502
-        
-    except Exception as e:
-        # Handle unexpected errors
-        return jsonify({
-            "error": "Internal server error",
-            "message": f"An unexpected error occurred: {str(e)}"
-        }), 500
+    """GET /api/stocks/search?symbol=TCS&exchange=N"""
+    symbol   = request.args.get("symbol", "").strip().upper()
+    exchange = request.args.get("exchange", "N").strip().upper()
 
+    if not symbol:
+        return jsonify({"error": "Missing stock symbol"}), 400
+
+    try:
+        exch_str   = "NSE" if exchange in ("N", "NSE") else "BSE"
+        exch_code  = "N" if exch_str == "NSE" else "B"
+        exch_type  = "C"
+
+        scrip_code = script_master_service.get_scrip_code(symbol, exch_code)
+        if not scrip_code:
+            return jsonify({"error": "Stock not found",
+                            "message": f"'{symbol}' not found in scripmaster. "
+                                       "Ensure backend/data/scripmaster-csv-format.csv exists."}), 404
+
+        snap = market_service.get_market_snapshot(scrip_code, exch_code, exch_type)
+        data_arr = (snap.get("body") or snap).get("Data", [])
+        if not data_arr:
+            return jsonify({"error": "No market data", "message": f"No data for {symbol}"}), 404
+
+        return jsonify(_snapshot_to_dict(symbol, scrip_code, data_arr[0], exch_str)), 200
+
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        return jsonify({"error": "Internal server error", "message": str(e)}), 500
+
+
+# ─── /search/batch ───────────────────────────────────────────────────────────
 
 @stocks_bp.route("/search/batch", methods=["POST"])
 def search_multiple_stocks():
-    """
-    Search for multiple Indian stocks at once.
-    
-    Request JSON:
-        - symbols: list[str] (required) - List of Indian stock symbols
-    
-    Returns:
-        - 200: Array of stock data
-        - 400: Missing or invalid symbols
-    
-    Example:
-        POST /api/stocks/search/batch
-        Body: {"symbols": ["TCS", "INFY", "RELIANCE"]}
-    """
-    
-    # Validate API key
-    if not STOCK_API_KEY:
-        return jsonify({
-            "error": "Stock API key not configured"
-        }), 500
-    
-    data = request.get_json()
-    
-    # Validate request body
-    if not data or "symbols" not in data:
-        return jsonify({
-            "error": "Missing symbols",
-            "message": "Please provide 'symbols' array in request body"
-        }), 400
-    
-    symbols = data.get("symbols", [])
-    
-    # Validate symbols is a list and not empty
-    if not isinstance(symbols, list) or len(symbols) == 0:
-        return jsonify({
-            "error": "Invalid symbols",
-            "message": "Symbols must be a non-empty array"
-        }), 400
-    
-    # Limit to 10 symbols per request to avoid rate limits
+    """POST /api/stocks/search/batch  Body: {"symbols": ["TCS","INFY"]}"""
+    body = request.get_json()
+    if not body or "symbols" not in body:
+        return jsonify({"error": "Missing symbols"}), 400
+
+    symbols = body["symbols"]
+    if not isinstance(symbols, list) or not symbols:
+        return jsonify({"error": "Symbols must be a non-empty array"}), 400
     if len(symbols) > 10:
-        return jsonify({
-            "error": "Too many symbols",
-            "message": "Maximum 10 symbols allowed per request"
-        }), 400
-    
+        return jsonify({"error": "Maximum 10 symbols per request"}), 400
+
     results = []
-    headers = {
-        "X-Api-Key": STOCK_API_KEY,
-        "Content-Type": "application/json"
-    }
-    
-    # Fetch data for each symbol
-    for symbol in symbols:
-        symbol = symbol.strip().upper()
-        
+    for sym in symbols:
+        sym = sym.strip().upper()
         try:
-            stock_url = f"{STOCK_API_BASE_URL}/stock"
-            params = {"name": symbol}  # Indian Stock API uses 'name' parameter
-            
-            response = requests.get(stock_url, headers=headers, params=params, timeout=10)
-            
-            if response.status_code != 200:
-                continue  # Skip failed requests
-            
-            stock_data = response.json()
-            
-            # Skip if error or invalid data
-            if not stock_data or "error" in stock_data:
+            sc = script_master_service.get_scrip_code(sym, "N")
+            if not sc:
                 continue
-            
-            # Build minimal stock data
-            current_price = float(stock_data.get("lastPrice", 0))
-            price_change = float(stock_data.get("change", 0))
-            price_change_percent = float(stock_data.get("pChange", 0))
-            
+            snap = market_service.get_market_snapshot(sc, "N", "C")
+            data_arr = (snap.get("body") or snap).get("Data", [])
+            if not data_arr:
+                continue
+            d = data_arr[0]
+            lp = _safe_float(d.get("LastTradedPrice") or d.get("LastRate"))
+            pc = _safe_float(d.get("PClose"))
+            ch = lp - pc
             results.append({
-                "symbol": stock_data.get("symbol", symbol),
-                "name": stock_data.get("companyName", symbol),
-                "current_price": round(current_price, 2),
-                "price_change": round(price_change, 2),
-                "price_change_percent": round(price_change_percent, 2)
+                "symbol":             sym,
+                "name":               d.get("Name", sym),
+                "current_price":      round(lp, 2),
+                "price_change":       round(ch, 2),
+                "price_change_percent": round((ch / pc * 100) if pc else 0, 2),
             })
-            
-        except Exception:
-            # Skip symbols that fail, don't break the whole request
-            continue
-    
-    return jsonify({
-        "results": results,
-        "count": len(results)
-    }), 200
+        except Exception as e:
+            print(f"[BATCH] failed for {sym}: {e}")
+    return jsonify({"results": results, "count": len(results)}), 200
+
+
+# ─── /5paisa/snapshot/<scrip_code> ───────────────────────────────────────────
+
+@stocks_bp.route("/5paisa/snapshot/<int:scrip_code>", methods=["GET"])
+def get_5paisa_snapshot(scrip_code):
+    """GET /api/stocks/5paisa/snapshot/2885?exchange=N&exchange_type=C"""
+    exchange      = request.args.get("exchange", "N")
+    exchange_type = request.args.get("exchange_type", "C")
+    try:
+        snap = market_service.get_market_snapshot(scrip_code, exchange, exchange_type)
+        formatted = market_service.format_stock_data(snap)
+        if not formatted:
+            return jsonify({"error": "No data"}), 404
+        return jsonify(formatted), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# ─── /5paisa/search ──────────────────────────────────────────────────────────
+
+@stocks_bp.route("/5paisa/search", methods=["GET"])
+def search_5paisa():
+    """GET /api/stocks/5paisa/search?q=RELI&exchange=N"""
+    query    = request.args.get("q", "").strip()
+    exchange = request.args.get("exchange", "N")
+    if not query:
+        return jsonify({"error": "Missing query parameter 'q'"}), 400
+    try:
+        matches = script_master_service.search_stock(query, exchange, "C")
+        return jsonify({"results": matches, "count": len(matches)}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# ─── /search-scripcode ───────────────────────────────────────────────────────
+
+@stocks_bp.route("/search-scripcode", methods=["GET"])
+def search_scripcode():
+    """GET /api/stocks/search-scripcode?symbol=TCS&exchange=N"""
+    symbol   = request.args.get("symbol", "").strip().upper()
+    exchange = request.args.get("exchange", "N")
+    if not symbol:
+        return jsonify({"error": "Missing symbol"}), 400
+    try:
+        sc = script_master_service.get_scrip_code(symbol, exchange)
+        if not sc:
+            return jsonify({"error": "Not found"}), 404
+        details = script_master_service.get_stock_details(sc) or {}
+        return jsonify({"scripCode": sc, "symbol": symbol, **details}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# ─── /get-stock-by-name/<symbol> ─────────────────────────────────────────────
+
+@stocks_bp.route("/get-stock-by-name/<symbol>", methods=["GET"])
+def get_stock_by_name(symbol):
+    """GET /api/stocks/get-stock-by-name/TCS?exchange=N"""
+    symbol   = symbol.strip().upper()
+    exchange = request.args.get("exchange", "N").strip().upper()
+    exch_code = "N" if exchange in ("N", "NSE") else "B"
+    exch_str  = "NSE" if exch_code == "N" else "BSE"
+
+    try:
+        sc = script_master_service.get_scrip_code(symbol, exch_code)
+        if not sc:
+            return jsonify({"error": "Stock not found",
+                            "message": f"'{symbol}' not found in scripmaster."}), 404
+
+        snap = market_service.get_market_snapshot(sc, exch_code, "C")
+        data_arr = (snap.get("body") or snap).get("Data", [])
+        if not data_arr:
+            return jsonify({"error": "No market data"}), 404
+
+        return jsonify(_snapshot_to_dict(symbol, sc, data_arr[0], exch_str)), 200
+
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
+# ─── /5paisa/historical/<scrip_code> ─────────────────────────────────────────
+
+@stocks_bp.route("/5paisa/historical/<int:scrip_code>", methods=["GET"])
+def get_5paisa_historical(scrip_code):
+    """GET /api/stocks/5paisa/historical/2885?exchange=N&exchange_type=C&interval=1D"""
+    exchange      = request.args.get("exchange", "N")
+    exchange_type = request.args.get("exchange_type", "C")
+    interval      = request.args.get("interval", "1D")
+    from_date     = request.args.get("from", "")
+    to_date       = request.args.get("to", "")
+
+    try:
+        raw     = market_service.get_historical_data(
+            scrip_code,
+            exchange=exchange,
+            exchange_type=exchange_type,
+            interval=interval,
+            from_date=from_date or None,
+            to_date=to_date or None,
+        )
+        candles = market_service.format_historical_data(raw)
+        return jsonify({"scripCode": scrip_code, "interval": interval,
+                        "candles": candles, "count": len(candles)}), 200
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        return jsonify({"error": str(e)}), 500

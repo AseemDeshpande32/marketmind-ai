@@ -156,6 +156,7 @@ class WebSocketService:
         pclose = float(data.get("PClose", 0) or data.get("PrevClose", 0) or 0)
         ltp    = float(price)
 
+        # Emit stock update (for LiveStockPrice component)
         payload = {
             "scrip_code":      scrip_code,
             "LastTradedPrice": ltp,
@@ -169,6 +170,19 @@ class WebSocketService:
 
         if self.socketio:
             self.socketio.emit("stock_update", payload, namespace="/")
+            
+            # Emit candle update (for CandlestickChart component)
+            # Extract OHLCV data for real-time chart updates
+            candle_payload = {
+                "scrip_code": scrip_code,
+                "time":       int(data.get("ExchangeTime", time.time())),
+                "open":       float(data.get("Open", 0) or ltp),
+                "high":       float(data.get("High", 0) or ltp),
+                "low":        float(data.get("Low", 0) or ltp),
+                "close":      ltp,
+                "volume":     int(float(data.get("Volume", 0) or data.get("TotalQty", 0) or 0))
+            }
+            self.socketio.emit("candle_update", candle_payload, namespace="/")
 
     # ── subscription messages ─────────────────────────────────────────────────
 

@@ -7,6 +7,24 @@ import { useStockWebSocket } from '../hooks/useStockWebSocket'
 import CandlestickChart from '../components/CandlestickChart'
 import './StockDetails.css'
 
+// Check if NSE/BSE market is currently open
+const isMarketOpen = () => {
+  const now = new Date()
+  const day = now.getDay() // 0=Sunday, 6=Saturday
+  const hour = now.getHours()
+  const minute = now.getMinutes()
+  
+  // Market closed on weekends
+  if (day === 0 || day === 6) return false
+  
+  // Market hours: 9:15 AM - 3:30 PM IST (Mon-Fri)
+  const currentTime = hour * 60 + minute
+  const marketOpen = 9 * 60 + 15  // 9:15 AM
+  const marketClose = 15 * 60 + 30 // 3:30 PM
+  
+  return currentTime >= marketOpen && currentTime < marketClose
+}
+
 const StockDetails = () => {
   const { symbol } = useParams()
   const navigate = useNavigate()
@@ -27,6 +45,15 @@ const StockDetails = () => {
   const [liveVolume,        setLiveVolume]         = useState(null)
   const [prevClose,         setPrevClose]          = useState(null)
   const [priceFlash, setPriceFlash] = useState(null)  // 'up' | 'down' | null
+  const [marketOpen, setMarketOpen] = useState(isMarketOpen())
+
+  // Check market hours periodically
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setMarketOpen(isMarketOpen())
+    }, 60000) // Check every minute
+    return () => clearInterval(interval)
+  }, [])
 
   // WebSocket hook
   const { liveData, isConnected } = useStockWebSocket({
@@ -164,8 +191,8 @@ const StockDetails = () => {
 
             <div className="stock-price-section">
               {/* Live / Connecting badge */}
-              <span className={`live-badge ${isConnected ? 'connected' : ''}`}>
-                {isConnected ? '● LIVE' : '○ CONNECTING'}
+              <span className={`live-badge ${isConnected && marketOpen ? 'connected' : ''}`}>
+                {isConnected && marketOpen ? '● LIVE' : marketOpen ? '○ CONNECTING' : '○ CLOSED'}
               </span>
 
               <span className={`current-price ${priceFlash ? `flash-${priceFlash}` : ''}`}>

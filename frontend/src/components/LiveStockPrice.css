@@ -1,0 +1,157 @@
+.live-stock-price {
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+  border-radius: 16px;
+  padding: 24px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  color: #fff;
+  min-width: 300px;
+}
+
+.live-stock-price.loading,
+.live-stock-price.error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+  min-height: 200px;
+}
+
+.spinner {
+  border: 3px solid rgba(255, 255, 255, 0.1);
+  border-top: 3px solid #00d9ff;
+  border-radius: 50%;
+  width: 40px;
+  height: 40px;
+  animation: spin 1s linear infinite;
+  margin-bottom: 16px;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.price-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.live-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.live-indicator svg {
+  width: 16px;
+  height: 16px;
+}
+
+.live-indicator .live-active {
+  color: #00ff88;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+.live-indicator .live-inactive {
+  color: #888;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.stock-name {
+  font-size: 16px;
+  font-weight: 600;
+  color: #a0a0a0;
+  margin: 0;
+}
+
+.price-display {
+  margin-bottom: 24px;
+}
+
+.current-price {
+  font-size: 48px;
+  font-weight: 700;
+  margin: 8px 0;
+  color: #fff;
+  line-height: 1;
+}
+
+.price-change {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 18px;
+  font-weight: 600;
+  margin-top: 12px;
+}
+
+.price-change.positive {
+  color: #00ff88;
+}
+
+.price-change.negative {
+  color: #ff4444;
+}
+
+.price-change svg {
+  width: 20px;
+  height: 20px;
+}
+
+.price-details {
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  padding-top: 20px;
+  display: grid;
+  gap: 12px;
+}
+
+.detail-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 14px;
+}
+
+.detail-row span:first-child {
+  color: #888;
+  font-weight: 500;
+}
+
+.detail-row span:last-child {
+  color: #fff;
+  font-weight: 600;
+}
+
+.detail-row .high {
+  color: #00ff88;
+}
+
+.detail-row .low {
+  color: #ff4444;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .live-stock-price {
+    padding: 20px;
+  }
+
+  .current-price {
+    font-size: 36px;
+  }
+
+  .price-change {
+    font-size: 16px;
+  }
+}

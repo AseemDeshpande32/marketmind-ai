@@ -16,6 +16,7 @@ export const API_ENDPOINTS = {
   // Stock endpoints
   STOCKS: `${API_BASE_URL}/stocks`,
   STOCK_SEARCH: `${API_BASE_URL}/stocks/search`,
+  STOCK_SENTIMENT: `${API_BASE_URL}/stocks/sentiment`,
 };
 
 export default API_BASE_URL;

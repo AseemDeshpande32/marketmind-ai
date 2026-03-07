@@ -24,6 +24,12 @@ _scrip_map: Dict[int, Dict[str, Any]] = {}
 _name_index: Dict[tuple, int] = {}
 _symbol_root_index: Dict[tuple, int] = {}
 
+# Series codes that represent plain equity stocks (excludes ETFs, REITs, InvITs, etc.)
+EQUITY_SERIES = {"EQ", "BE", "BZ", "SM", "ST", "IL", "N", "Q", "XT", ""}
+
+# NSE indices use special ScripCodes in the 999900000+ range
+INDEX_SCRIP_THRESHOLD = 999_900_000
+
 _loaded = False
 
 
@@ -51,6 +57,7 @@ def _load_csv():
                     series      = row.get('Series', '').strip()
                     isin        = row.get('ISIN', '').strip()
                     symbol_root = row.get('SymbolRoot', '').strip()
+                    expiry      = row.get('Expiry', '').strip()
 
                     if not scrip_code or not name:
                         continue
@@ -64,6 +71,7 @@ def _load_csv():
                         'series':     series,
                         'isin':       isin,
                         'symbolRoot': symbol_root,
+                        'expiry':     expiry,
                     }
 
                     # Build equity-priority index (ExchType == "C")
@@ -110,10 +118,22 @@ def _ensure_loaded():
 class ScriptMasterService:
     """Provides symbol/name → scrip code lookup using the 5paisa scripmaster CSV."""
 
-    def search_stock(self, query: str, exchange: str = 'N', exchange_type: str = 'C') -> List[Dict]:
+    def search_stock(self, query: str, exchange: str = 'N', exchange_type: str = 'C',
+                     allowed_series: Optional[set] = None, limit: int = 10,
+                     no_expiry: bool = False, indices_only: bool = False) -> List[Dict]:
         """
-        Search for stocks whose Name, FullName, or SymbolRoot contains the
-        query string. Filters by exchange + exchange type.  Returns up to 10.
+        Search for stocks/indices matching the query.
+
+        Args:
+            query:          Partial symbol / name to search.
+            exchange:       'N' for NSE, 'B' for BSE.
+            exchange_type:  'C' for equity/cash segment.
+            allowed_series: If provided, only include rows whose Series is in
+                            this set (excludes ETFs, REITs, etc.).
+            limit:          Maximum results to return.
+            no_expiry:      If True, exclude rows that have a non-empty Expiry field.
+            indices_only:   If True, only return index entries (ScripCode >= 999900000).
+                            If False, exclude index entries from results.
         """
         _ensure_loaded()
         query_upper = query.upper().strip()
@@ -124,6 +144,16 @@ class ScriptMasterService:
                 continue
             if entry.get('exchType') and entry['exchType'] != exchange_type:
                 continue
+            if allowed_series is not None and entry.get('series', '') not in allowed_series:
+                continue
+            if no_expiry and entry.get('expiry', ''):
+                continue
+
+            is_index = sc >= INDEX_SCRIP_THRESHOLD
+            if indices_only and not is_index:
+                continue
+            if not indices_only and is_index:
+                continue
 
             name      = entry.get('name', '').upper()
             full_name = entry.get('fullName', '').upper()
@@ -131,15 +161,16 @@ class ScriptMasterService:
 
             if query_upper in name or query_upper in full_name or query_upper in sym_root:
                 results.append({
-                    'scripCode':  sc,
-                    'name':       entry['name'],
-                    'fullName':   entry['fullName'],
-                    'exchange':   entry['exchange'],
-                    'series':     entry['series'],
-                    'isin':       entry['isin'],
-                    'symbolRoot': entry.get('symbolRoot', ''),
+                    'scripCode':      sc,
+                    'name':           entry['name'],
+                    'fullName':       entry['fullName'],
+                    'exchange':       entry['exchange'],
+                    'series':         entry['series'],
+                    'isin':           entry['isin'],
+                    'symbolRoot':     entry.get('symbolRoot', ''),
+                    'instrumentType': 'INDEX' if is_index else 'EQ',
                 })
-                if len(results) >= 10:
+                if len(results) >= limit:
                     break
 
         return results

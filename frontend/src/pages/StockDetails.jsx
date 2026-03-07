@@ -1,10 +1,11 @@
 import { useParams, useNavigate } from 'react-router-dom'
 import { useState, useEffect, useCallback } from 'react'
-import { FiArrowLeft, FiTrendingUp, FiTrendingDown, FiBarChart2, FiActivity } from 'react-icons/fi'
+import { FiArrowLeft, FiTrendingUp, FiTrendingDown, FiBarChart2, FiActivity, FiCpu } from 'react-icons/fi'
 import { searchStock } from '../services/stockService'
 import { searchStockByName } from '../services/market5paisaService'
 import { useStockWebSocket } from '../hooks/useStockWebSocket'
 import CandlestickChart from '../components/CandlestickChart'
+import { API_ENDPOINTS } from '../config/api'
 import './StockDetails.css'
 
 // Check if NSE/BSE market is currently open
@@ -35,6 +36,11 @@ const StockDetails = () => {
   const [exchange,   setExchange]   = useState('N')      // "N" = NSE, "B" = BSE
   const [loading,    setLoading]    = useState(true)
   const [error,      setError]      = useState(null)
+
+  // Sentiment analysis state
+  const [sentiment,        setSentiment]        = useState(null)
+  const [sentimentLoading, setSentimentLoading] = useState(false)
+  const [sentimentError,   setSentimentError]   = useState(null)
 
   // Live price state
   const [livePrice,         setLivePrice]         = useState(null)
@@ -143,6 +149,34 @@ const StockDetails = () => {
   const isPositive     = (displayChange ?? 0) >= 0
   const exchLabel      = exchange === 'N' ? 'NSE' : 'BSE'
 
+  // ── Sentiment analysis handler ──────────────────────────────────────────────
+  const handleAnalyse = useCallback(async () => {
+    if (!stockData) return
+    setSentimentLoading(true)
+    setSentimentError(null)
+    setSentiment(null)
+    try {
+      const res = await fetch(API_ENDPOINTS.STOCK_SENTIMENT, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          stock_name: stockData.name || stockData.symbol,
+          ticker: stockData.symbol,
+        }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.error || `HTTP ${res.status}`)
+      }
+      const data = await res.json()
+      setSentiment(data)
+    } catch (err) {
+      setSentimentError(err.message || 'Sentiment analysis failed')
+    } finally {
+      setSentimentLoading(false)
+    }
+  }, [stockData])
+
   // ─────────────────────────────────────────────────────────────────────────
   return (
     <div className="stock-details">
@@ -220,6 +254,84 @@ const StockDetails = () => {
                 <p style={{ color: '#a0a0b0' }}>
                   Scrip code not available — chart cannot load.
                 </p>
+              )}
+            </div>
+
+            {/* Sentiment Analysis ─────────────────────────────────────────── */}
+            <div className="sentiment-section">
+              <div className="sentiment-header">
+                <h2><FiCpu /> AI News Sentiment</h2>
+                <button
+                  className={`analyse-btn ${sentimentLoading ? 'loading' : ''}`}
+                  onClick={handleAnalyse}
+                  disabled={sentimentLoading}
+                >
+                  {sentimentLoading ? (
+                    <><span className="btn-spinner" /> Analysing…</>
+                  ) : 'Analyse'}
+                </button>
+              </div>
+
+              {sentimentError && (
+                <p className="sentiment-error">{sentimentError}</p>
+              )}
+
+              {sentiment && (
+                <div className="sentiment-results">
+                  <div className="sentiment-bars">
+                    <div className="sentiment-bar-row">
+                      <span className="s-label positive-label">Positive</span>
+                      <div className="s-track">
+                        <div
+                          className="s-fill positive-fill"
+                          style={{ width: `${sentiment.positive_percent}%` }}
+                        />
+                      </div>
+                      <span className="s-pct">{sentiment.positive_percent}%</span>
+                    </div>
+                    <div className="sentiment-bar-row">
+                      <span className="s-label neutral-label">Neutral</span>
+                      <div className="s-track">
+                        <div
+                          className="s-fill neutral-fill"
+                          style={{ width: `${sentiment.neutral_percent}%` }}
+                        />
+                      </div>
+                      <span className="s-pct">{sentiment.neutral_percent}%</span>
+                    </div>
+                    <div className="sentiment-bar-row">
+                      <span className="s-label negative-label">Negative</span>
+                      <div className="s-track">
+                        <div
+                          className="s-fill negative-fill"
+                          style={{ width: `${sentiment.negative_percent}%` }}
+                        />
+                      </div>
+                      <span className="s-pct">{sentiment.negative_percent}%</span>
+                    </div>
+                  </div>
+
+                  <div className="sentiment-summary">
+                    <div className="summary-item">
+                      <span className="summary-label">Sentiment Score</span>
+                      <span className="summary-value">{sentiment.sentiment_score}</span>
+                    </div>
+                    <div className="summary-item">
+                      <span className="summary-label">Overall Sentiment</span>
+                      <span className={`overall-badge overall-${sentiment.overall_sentiment.toLowerCase().replace(/\s+/g, '-')}`}>
+                        {sentiment.overall_sentiment}
+                      </span>
+                    </div>
+                    <div className="summary-item">
+                      <span className="summary-label">Articles Analysed</span>
+                      <span className="summary-value">{sentiment.articles_analyzed}</span>
+                    </div>
+                  </div>
+
+                  {sentiment.message && (
+                    <p className="sentiment-note">{sentiment.message}</p>
+                  )}
+                </div>
               )}
             </div>
 

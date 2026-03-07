@@ -147,14 +147,43 @@ def get_5paisa_snapshot(scrip_code):
 
 @stocks_bp.route("/5paisa/search", methods=["GET"])
 def search_5paisa():
-    """GET /api/stocks/5paisa/search?q=RELI&exchange=N"""
+    """GET /api/stocks/5paisa/search?q=RELI&exchange=N
+    Returns equity stocks (EQ/BE series) and indices only — no ETFs or commodities.
+    """
     query    = request.args.get("q", "").strip()
     exchange = request.args.get("exchange", "N")
     if not query:
         return jsonify({"error": "Missing query parameter 'q'"}), 400
     try:
-        matches = script_master_service.search_stock(query, exchange, "C")
-        return jsonify({"results": matches, "count": len(matches)}), 200
+        from services.script_master_service import EQUITY_SERIES
+
+        # Equity stocks — ExchType C, restricted to plain equity series
+        equity_matches = script_master_service.search_stock(
+            query, exchange,
+            exchange_type="C",
+            allowed_series=EQUITY_SERIES,
+            limit=10,
+        )
+
+        # Indices — ExchType C, ScripCode >= 999900000 (5paisa index range), no ETF/FnO
+        index_matches = script_master_service.search_stock(
+            query, exchange,
+            exchange_type="C",
+            allowed_series=None,
+            no_expiry=True,
+            indices_only=True,
+            limit=5,
+        )
+
+        # Indices first, then equities (deduplicated by scripCode)
+        seen_codes = set()
+        combined   = []
+        for m in index_matches + equity_matches:
+            if m['scripCode'] not in seen_codes:
+                seen_codes.add(m['scripCode'])
+                combined.append(m)
+
+        return jsonify({"results": combined, "count": len(combined)}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -229,6 +258,33 @@ def get_5paisa_historical(scrip_code):
         candles = market_service.format_historical_data(raw)
         return jsonify({"scripCode": scrip_code, "interval": interval,
                         "candles": candles, "count": len(candles)}), 200
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
+# ─── /sentiment ───────────────────────────────────────────────────────────────
+
+@stocks_bp.route("/sentiment", methods=["POST"])
+def analyse_sentiment():
+    """
+    POST /api/stocks/sentiment
+    Body: { "stock_name": "Reliance Industries", "ticker": "RELIANCE.NS" }
+
+    Fetches Google News RSS, filters financial articles, runs FinBERT sentiment
+    analysis and returns a summary.
+    """
+    body = request.get_json(silent=True) or {}
+    stock_name = str(body.get("stock_name", "")).strip()
+    ticker     = str(body.get("ticker", "")).strip()
+
+    if not stock_name and not ticker:
+        return jsonify({"error": "Provide stock_name or ticker"}), 400
+
+    try:
+        from services.sentiment_service import run_sentiment_pipeline
+        result = run_sentiment_pipeline(stock_name, ticker)
+        return jsonify(result), 200
     except Exception as e:
         import traceback; traceback.print_exc()
         return jsonify({"error": str(e)}), 500

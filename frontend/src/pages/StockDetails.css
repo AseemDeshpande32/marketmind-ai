@@ -338,6 +338,211 @@
   color:        #00d4ff;
 }
 
+/* ── Sentiment Analysis Section ─────────────────────────────────────────── */
+.sentiment-section {
+  background: linear-gradient(145deg, rgba(26, 26, 46, 0.6) 0%, rgba(18, 18, 26, 0.8) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 20px;
+  padding: 2rem;
+}
+
+.sentiment-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.sentiment-header h2 {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+.sentiment-header h2 svg {
+  color: #00d4ff;
+}
+
+/* Analyse button */
+.analyse-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 1.6rem;
+  background: linear-gradient(135deg, #00d4ff 0%, #7c3aed 100%);
+  border: none;
+  border-radius: 10px;
+  color: #fff;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.2s, transform 0.2s;
+}
+
+.analyse-btn:hover:not(:disabled) {
+  opacity: 0.88;
+  transform: translateY(-2px);
+}
+
+.analyse-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.analyse-btn.loading {
+  opacity: 0.7;
+}
+
+.btn-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255,255,255,0.4);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+/* Error */
+.sentiment-error {
+  color: #ef4444;
+  font-size: 0.9rem;
+  margin-top: 0.5rem;
+}
+
+.sentiment-note {
+  color: #a0a0b0;
+  font-size: 0.85rem;
+  margin-top: 1rem;
+  font-style: italic;
+}
+
+/* Results layout */
+.sentiment-results {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+/* Progress bars */
+.sentiment-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.sentiment-bar-row {
+  display: grid;
+  grid-template-columns: 80px 1fr 46px;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.s-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.positive-label { color: #22c55e; }
+.neutral-label  { color: #eab308; }
+.negative-label { color: #ef4444; }
+
+.s-track {
+  height: 10px;
+  background: rgba(255,255,255,0.07);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.s-fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.8s ease;
+}
+
+.positive-fill { background: linear-gradient(90deg, #22c55e, #4ade80); }
+.neutral-fill  { background: linear-gradient(90deg, #ca8a04, #eab308); }
+.negative-fill { background: linear-gradient(90deg, #dc2626, #ef4444); }
+
+.s-pct {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #d0d0e0;
+  text-align: right;
+}
+
+/* Summary row */
+.sentiment-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.summary-item {
+  flex: 1;
+  min-width: 120px;
+  background: rgba(255,255,255,0.03);
+  border-radius: 12px;
+  padding: 1rem;
+  text-align: center;
+}
+
+.summary-label {
+  display: block;
+  font-size: 0.8rem;
+  color: #a0a0b0;
+  margin-bottom: 0.45rem;
+}
+
+.summary-value {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.overall-badge {
+  display: inline-block;
+  font-size: 1rem;
+  font-weight: 700;
+  padding: 0.25rem 0.9rem;
+  border-radius: 8px;
+}
+
+.overall-bullish {
+  color: #22c55e;
+  background: rgba(34, 197, 94, 0.12);
+}
+
+.overall-slightly-bullish {
+  color: #86efac;
+  background: rgba(134, 239, 172, 0.1);
+}
+
+.overall-bearish {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.12);
+}
+
+.overall-slightly-bearish {
+  color: #fca5a5;
+  background: rgba(252, 165, 165, 0.1);
+}
+
+.overall-neutral {
+  color: #eab308;
+  background: rgba(234, 179, 8, 0.12);
+}
+
+.overall-mixed {
+  color: #94a3b8;
+  background: rgba(148, 163, 184, 0.1);
+}
+
 /* ── Live Badge ──────────────────────────────────────────────────────────── */
 .live-badge {
   display:       inline-block;

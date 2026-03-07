@@ -1,166 +1,89 @@
-/**
- * Custom hook for WebSocket connection to 5paisa live market data
- */
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { io } from 'socket.io-client';
 
-const SOCKET_URL = import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:5000';
+// Derive Socket.IO server URL from the API base URL (strip "/api" suffix)
+const SOCKET_URL =
+  (import.meta.env.VITE_API_URL || 'http://localhost:5000/api')
+    .replace(/\/api\/?$/, '');
 
 /**
- * Hook for subscribing to live stock updates via WebSocket
- * @param {number} scripCode - Stock scrip code to subscribe to
- * @param {string} exchange - Exchange code (N=NSE, B=BSE)
- * @param {string} exchangeType - Exchange type (C=Cash, D=Derivative)
- * @returns {Object} { liveData, isConnected, error }
+ * useStockWebSocket
+ *
+ * Connects to the Flask-SocketIO server and subscribes to live price
+ * updates for the given scrip code.
+ *
+ * @param {object} params
+ * @param {number|null} params.scripCode     - 5paisa scrip code (e.g. 2885)
+ * @param {string}      params.exchange      - "N" (NSE) or "B" (BSE)
+ * @param {string}      params.exchangeType  - "C" (cash, default)
+ *
+ * @returns {{ liveData: object|null, isConnected: boolean, error: string|null }}
  */
-export const useStockWebSocket = (scripCode, exchange = 'N', exchangeType = 'C') => {
-  const [liveData, setLiveData] = useState(null);
+export function useStockWebSocket({
+  scripCode,
+  exchange = 'N',
+  exchangeType = 'C',
+}) {
+  const socketRef    = useRef(null);
+  const [liveData,    setLiveData]    = useState(null);
   const [isConnected, setIsConnected] = useState(false);
-  const [error, setError] = useState(null);
-  const socketRef = useRef(null);
+  const [error,       setError]       = useState(null);
+
+  const subscribe = useCallback((socket) => {
+    if (!scripCode) return;
+    console.log(`🔌 Subscribing to scrip ${scripCode} on ${SOCKET_URL}`);
+    socket.emit('subscribe_stock', {
+      scrip_code:    scripCode,
+      exchange,
+      exchange_type: exchangeType,
+    });
+  }, [scripCode, exchange, exchangeType]);
 
   useEffect(() => {
-    // Don't connect if no scrip code
-    if (!scripCode) {
-      console.log('⚠️ No scrip code provided, skipping WebSocket connection');
-      return;
-    }
+    if (!scripCode) return;
 
-    console.log(`🔌 Connecting to WebSocket for scrip: ${scripCode}, exchange: ${exchange}`);
-
-    // Initialize socket connection
-    socketRef.current = io(SOCKET_URL, {
+    // Create (or reuse) the socket connection
+    const socket = io(SOCKET_URL, {
       transports: ['websocket', 'polling'],
       reconnectionAttempts: 5,
-      reconnectionDelay: 1000,
+      reconnectionDelay: 2000,
     });
+    socketRef.current = socket;
 
-    const socket = socketRef.current;
-
-    // Connection handlers
     socket.on('connect', () => {
-      console.log('✅ WebSocket connected, socket ID:', socket.id);
+      console.log('✅ Socket.IO connected');
       setIsConnected(true);
       setError(null);
-
-      // Subscribe to stock updates
-      console.log(`📡 Subscribing to stock: ${scripCode}, exchange: ${exchange}`);
-      socket.emit('subscribe_stock', {
-        scrip_code: scripCode,
-        exchange: exchange,
-        exchange_type: exchangeType,
-      });
+      subscribe(socket);
     });
 
     socket.on('disconnect', () => {
-      console.log('🔌 WebSocket disconnected');
+      console.log('🔌 Socket.IO disconnected');
       setIsConnected(false);
-    });
-
-    socket.on('connection_response', (data) => {
-      console.log('Connection response:', data);
-    });
-
-    socket.on('subscribed', (data) => {
-      console.log('✅ Subscribed to stock:', data);
-    });
-
-    socket.on('stock_update', (data) => {
-      console.log('📊 Live update received:', {
-        scripCode: data.ScripCode,
-        price: data.LastTradedPrice || data.LastRate || data.LTP,
-        high: data.High,
-        low: data.Low,
-        volume: data.Volume
-      });
-      setLiveData(data);
-    });
-
-    socket.on('error', (err) => {
-      console.error('❌ WebSocket error:', err);
-      setError(err.message || 'WebSocket error');
     });
 
     socket.on('connect_error', (err) => {
-      console.error('Connection error:', err);
-      setError('Failed to connect to live data stream');
+      console.error('❌ Socket.IO connect error:', err.message);
+      setError(err.message);
       setIsConnected(false);
     });
 
-    // Cleanup on unmount
+    // Live price updates from the backend
+    socket.on('stock_update', (data) => {
+      // Only accept events for the subscribed scrip
+      if (data.scrip_code && Number(data.scrip_code) !== Number(scripCode)) return;
+      setLiveData(data);
+    });
+
     return () => {
-      if (socket) {
-        console.log(`🔌 Unsubscribing from stock: ${scripCode}`);
-        socket.emit('unsubscribe_stock', {
-          scrip_code: scripCode,
-        });
-        socket.disconnect();
-        console.log('🔌 WebSocket disconnected');
-      }
-    };
-  }, [scripCode, exchange, exchangeType]);
-
-  return { liveData, isConnected, error };
-};
-
-/**
- * Hook for manually managing WebSocket connection
- * @returns {Object} { socket, isConnected, connect, disconnect, subscribe, unsubscribe }
- */
-export const useWebSocket = () => {
-  const [isConnected, setIsConnected] = useState(false);
-  const socketRef = useRef(null);
-
-  const connect = () => {
-    if (socketRef.current) return;
-
-    socketRef.current = io(SOCKET_URL, {
-      transports: ['websocket', 'polling'],
-    });
-
-    socketRef.current.on('connect', () => {
-      setIsConnected(true);
-    });
-
-    socketRef.current.on('disconnect', () => {
-      setIsConnected(false);
-    });
-  };
-
-  const disconnect = () => {
-    if (socketRef.current) {
-      socketRef.current.disconnect();
+      console.log(`🔌 Unsubscribing from scrip ${scripCode}`);
+      socket.emit('unsubscribe_stock', { scrip_code: scripCode });
+      socket.disconnect();
       socketRef.current = null;
       setIsConnected(false);
-    }
-  };
+      setLiveData(null);
+    };
+  }, [scripCode, exchange, exchangeType, subscribe]);
 
-  const subscribe = (scripCode, exchange = 'N', exchangeType = 'C') => {
-    if (socketRef.current && isConnected) {
-      socketRef.current.emit('subscribe_stock', {
-        scrip_code: scripCode,
-        exchange,
-        exchange_type: exchangeType,
-      });
-    }
-  };
-
-  const unsubscribe = (scripCode) => {
-    if (socketRef.current && isConnected) {
-      socketRef.current.emit('unsubscribe_stock', {
-        scrip_code: scripCode,
-      });
-    }
-  };
-
-  return {
-    socket: socketRef.current,
-    isConnected,
-    connect,
-    disconnect,
-    subscribe,
-    unsubscribe,
-  };
-};
-
-export default useStockWebSocket;
+  return { liveData, isConnected, error };
+}

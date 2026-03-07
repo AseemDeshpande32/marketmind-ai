@@ -1,13 +1,18 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { FiSearch, FiTrendingUp, FiTrendingDown, FiClock } from 'react-icons/fi'
 import { fetchNews } from '../services/newsService'
 import { searchStock } from '../services/stockService'
+import { searchScripmaster } from '../services/market5paisaService'
 import './Dashboard.css'
 
 const Dashboard = () => {
   const navigate = useNavigate()
   const [searchQuery, setSearchQuery] = useState('')
+  const [suggestions, setSuggestions]   = useState([])
+  const [showDropdown, setShowDropdown] = useState(false)
+  const searchRef = useRef(null)
+  const debounceRef = useRef(null)
   const [trendingStocks, setTrendingStocks] = useState([])
   const [loadingStocks, setLoadingStocks] = useState(true)
   const [newsItems, setNewsItems] = useState([])
@@ -130,9 +135,38 @@ const Dashboard = () => {
   const handleSearch = (e) => {
     e.preventDefault()
     if (searchQuery.trim()) {
-      navigate(`/stock/${searchQuery.toUpperCase()}`)
+      setShowDropdown(false)
+      navigate(`/stock/${searchQuery.trim().toUpperCase()}`)
     }
   }
+
+  const handleSearchInput = (e) => {
+    const val = e.target.value
+    setSearchQuery(val)
+    clearTimeout(debounceRef.current)
+    if (val.trim().length < 2) { setSuggestions([]); setShowDropdown(false); return }
+    debounceRef.current = setTimeout(async () => {
+      try {
+        const res = await searchScripmaster(val.trim(), 'N')
+        setSuggestions(res.results || [])
+        setShowDropdown(true)
+      } catch { setSuggestions([]) }
+    }, 250)
+  }
+
+  const handleSuggestionClick = (sym) => {
+    setShowDropdown(false)
+    setSuggestions([])
+    setSearchQuery(sym)
+    navigate(`/stock/${sym}`)
+  }
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handler = (e) => { if (searchRef.current && !searchRef.current.contains(e.target)) setShowDropdown(false) }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
 
   const handleStockClick = (symbol) => {
     navigate(`/stock/${symbol}`)
@@ -146,16 +180,29 @@ const Dashboard = () => {
           <p>Here's what's happening in the market today</p>
         </div>
         
-        <form className="search-bar" onSubmit={handleSearch}>
-          <FiSearch className="search-icon" />
-          <input
-            type="text"
-            placeholder="Search stocks by symbol (e.g., AAPL, GOOGL)..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-          />
-          <button type="submit">Search</button>
-        </form>
+        <div className="search-wrapper" ref={searchRef}>
+          <form className="search-bar" onSubmit={handleSearch}>
+            <FiSearch className="search-icon" />
+            <input
+              type="text"
+              placeholder="Search stocks by symbol (e.g., TCS, RELIANCE)..."
+              value={searchQuery}
+              onChange={handleSearchInput}
+              onFocus={() => suggestions.length > 0 && setShowDropdown(true)}
+            />
+            <button type="submit">Search</button>
+          </form>
+          {showDropdown && suggestions.length > 0 && (
+            <ul className="search-dropdown">
+              {suggestions.map((s) => (
+                <li key={s.scripCode} onMouseDown={() => handleSuggestionClick(s.symbolRoot || s.name)}>
+                  <span className="sd-symbol">{s.symbolRoot || s.name}</span>
+                  <span className="sd-name">{s.fullName || s.name}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       </div>
 
       <div className="dashboard-content">

@@ -19,10 +19,10 @@ CSV_PATH = os.path.join(os.path.dirname(__file__), '..', 'data', 'ScripMaster_al
 _scrip_map: Dict[int, Dict[str, Any]] = {}
 
 # Equity-only indexes  (ExchType == "C" and Series in {EQ, BE, BZ, SM, …})
-# name_index:       uppercase_name       → scrip_code
-# symbol_root_index: uppercase_symbolroot → scrip_code
-_name_index: Dict[str, int] = {}
-_symbol_root_index: Dict[str, int] = {}
+# name_index:       (uppercase_name, exchange)       → scrip_code
+# symbol_root_index: (uppercase_symbolroot, exchange) → scrip_code
+_name_index: Dict[tuple, int] = {}
+_symbol_root_index: Dict[tuple, int] = {}
 
 _loaded = False
 
@@ -77,16 +77,18 @@ def _load_csv():
                         _scrip_map[scrip_code] = entry
 
                     if is_equity:
-                        # Equity entry — always overwrite (preferred)
-                        _name_index[name_upper] = scrip_code
+                        # Equity entry — store with exchange-aware keys
+                        _name_index[(name_upper, exch)] = scrip_code
                         if root_upper:
-                            _symbol_root_index[root_upper] = scrip_code
+                            _symbol_root_index[(root_upper, exch)] = scrip_code
                     else:
-                        # Non-equity — store only if no equity entry yet
-                        if name_upper not in _name_index:
-                            _name_index[name_upper] = scrip_code
-                        if root_upper and root_upper not in _symbol_root_index:
-                            _symbol_root_index[root_upper] = scrip_code
+                        # Non-equity — store only if no equity entry yet for this exchange
+                        key_name = (name_upper, exch)
+                        key_root = (root_upper, exch)
+                        if key_name not in _name_index:
+                            _name_index[key_name] = scrip_code
+                        if root_upper and key_root not in _symbol_root_index:
+                            _symbol_root_index[key_root] = scrip_code
 
                 except (ValueError, KeyError):
                     continue
@@ -150,13 +152,14 @@ class ScriptMasterService:
         _ensure_loaded()
         symbol_upper = symbol.upper().strip()
 
-        # 1) SymbolRoot index (most reliable for ticker symbols)
-        if symbol_upper in _symbol_root_index:
-            return _symbol_root_index[symbol_upper]
+        # 1) SymbolRoot index (most reliable for ticker symbols) - with exchange filter
+        key = (symbol_upper, exchange)
+        if key in _symbol_root_index:
+            return _symbol_root_index[key]
 
-        # 2) Name index
-        if symbol_upper in _name_index:
-            return _name_index[symbol_upper]
+        # 2) Name index - with exchange filter
+        if key in _name_index:
+            return _name_index[key]
 
         # 3) Fallback: linear scan for equity match on this exchange
         for sc, entry in _scrip_map.items():

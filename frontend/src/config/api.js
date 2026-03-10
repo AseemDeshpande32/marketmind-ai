@@ -17,6 +17,9 @@ export const API_ENDPOINTS = {
   STOCKS: `${API_BASE_URL}/stocks`,
   STOCK_SEARCH: `${API_BASE_URL}/stocks/search`,
   STOCK_SENTIMENT: `${API_BASE_URL}/stocks/sentiment`,
+
+  // Chat / AI chatbot endpoint
+  CHAT: `${API_BASE_URL}/chat`,
 };
 
 export default API_BASE_URL;

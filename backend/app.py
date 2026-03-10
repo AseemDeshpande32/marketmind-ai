@@ -43,9 +43,11 @@ def create_app(config_class=Config):
     from routes.auth import auth_bp
     from routes.stocks import stocks_bp
     from routes.news import news_bp
+    from routes.chat import chat_bp
     app.register_blueprint(auth_bp)
     app.register_blueprint(stocks_bp)
     app.register_blueprint(news_bp)
+    app.register_blueprint(chat_bp)
 
     # Initialize SocketIO with the app and WebSocket service
     socketio.init_app(app)

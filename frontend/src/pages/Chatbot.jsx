@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
-import { FiSend, FiMessageCircle, FiUser, FiTrendingUp, FiAlertCircle } from 'react-icons/fi'
-import { sendChatMessage } from '../services/chatService'
+import { FiSend, FiSquare, FiMessageCircle, FiUser, FiTrendingUp, FiAlertCircle } from 'react-icons/fi'
+import { streamChatMessage } from '../services/chatService'
 import './Chatbot.css'
 
 /**
@@ -22,35 +22,95 @@ const WELCOME_MESSAGE = {
   id: 1,
   type: 'bot',
   content:
-    "Hello! I'm MarketMind AI, your intelligent Indian stock market assistant powered by Gemma. " +
+    "Hello! I'm MarketMind AI, your intelligent Indian stock market assistant. " +
     "I can help you with:\n\n" +
     "**• Stock Analysis** — Ask about any NSE/BSE listed stock\n" +
     "**• Stock Comparison** — Compare two stocks side by side\n" +
     "**• Portfolio Analysis** — Share your holdings for a full review\n" +
+    "**• Investment Suggestions** — Get advice based on your age, goals, or budget\n" +
     "**• Finance Concepts** — PE ratio, book value, dividends, and more\n\n" +
     "How can I help you today?",
 }
 
 const Chatbot = () => {
-  const [messages, setMessages] = useState([WELCOME_MESSAGE])
+  // Load messages from localStorage on mount, or use welcome message
+  const [messages, setMessages] = useState(() => {
+    try {
+      const saved = localStorage.getItem('marketmind_chat_history')
+      if (saved) {
+        const parsed = JSON.parse(saved)
+        return Array.isArray(parsed) && parsed.length > 0 ? parsed : [WELCOME_MESSAGE]
+      }
+    } catch (err) {
+      console.error('Failed to load chat history:', err)
+    }
+    return [WELCOME_MESSAGE]
+  })
   const [inputValue, setInputValue] = useState('')
   const [isTyping, setIsTyping] = useState(false)
+  const [isStreaming, setIsStreaming] = useState(false)
   const messagesEndRef = useRef(null)
+  const abortControllerRef = useRef(null)
+  const textareaRef = useRef(null)
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }
 
+  // Save messages to localStorage whenever they change
+  useEffect(() => {
+    try {
+      localStorage.setItem('marketmind_chat_history', JSON.stringify(messages))
+    } catch (err) {
+      console.error('Failed to save chat history:', err)
+    }
+  }, [messages])
+
   useEffect(() => {
     scrollToBottom()
   }, [messages])
+
+  useEffect(() => {
+    const el = textareaRef.current
+    if (el) {
+      el.style.height = 'auto'
+      el.style.height = Math.min(el.scrollHeight, 120) + 'px'
+    }
+  }, [inputValue])
+
+  // Cleanup on unmount — abort any active stream when navigating away
+  useEffect(() => {
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort()
+      }
+    }
+  }, [])
+
+  // Warn user before leaving page while streaming
+  useEffect(() => {
+    const handleBeforeUnload = (e) => {
+      if (isStreaming) {
+        e.preventDefault()
+        e.returnValue = 'Response is still generating. Are you sure you want to leave?'
+        return e.returnValue
+      }
+    }
+
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+  }, [isStreaming])
 
   const suggestedQuestions = [
     'What is PE ratio?',
     'Compare TCS and Infosys',
     'Analyze Reliance stock',
-    'My portfolio: TCS 5, Infosys 10, Wipro 8',
+    'I have ₹10,000 to invest, I am 25 years old',
   ]
+
+  const stopStreaming = () => {
+    abortControllerRef.current?.abort()
+  }
 
   const handleSendMessage = async (e) => {
     e.preventDefault()
@@ -61,34 +121,95 @@ const Chatbot = () => {
     setMessages(prev => [...prev, userMsg])
     setInputValue('')
     setIsTyping(true)
+    setIsStreaming(true)
 
-    try {
-      const result = await sendChatMessage(text)
-      const botMsg = {
-        id: Date.now() + 1,
-        type: 'bot',
-        content: result.response || 'No response received.',
-        intent: result.intent,
-      }
-      setMessages(prev => [...prev, botMsg])
-    } catch (err) {
-      const errMsg = {
-        id: Date.now() + 1,
-        type: 'bot',
-        isError: true,
-        content:
+    const controller = new AbortController()
+    abortControllerRef.current = controller
+    const botMsgId = Date.now() + 1
+
+    // Build conversation history (exclude welcome message, keep last 10 exchanges)
+    const history = messages
+      .filter(m => m.id !== WELCOME_MESSAGE.id && !m.isError)
+      .slice(-10)
+      .map(m => ({
+        role: m.type === 'user' ? 'user' : 'assistant',
+        content: m.content || ''
+      }))
+
+    await streamChatMessage(
+      text,
+      history,
+      // onToken — append each new token to the bot message
+      (token) => {
+        setMessages(prev => {
+          const existing = prev.find(m => m.id === botMsgId)
+          if (existing) {
+            return prev.map(m =>
+              m.id === botMsgId ? { ...m, content: m.content + token } : m
+            )
+          }
+          // First token: create the bot message and stop the typing indicator
+          setIsTyping(false)
+          return [...prev, { id: botMsgId, type: 'bot', content: token }]
+        })
+      },
+      // onMeta — store intent badge once we know it
+      (meta) => {
+        setMessages(prev => {
+          const existing = prev.find(m => m.id === botMsgId)
+          if (existing) {
+            return prev.map(m =>
+              m.id === botMsgId ? { ...m, intent: meta.intent } : m
+            )
+          }
+          return prev
+        })
+      },
+      // onDone
+      () => {
+        setIsTyping(false)
+        setIsStreaming(false)
+      },
+      // onError
+      (err) => {
+        setIsTyping(false)
+        setIsStreaming(false)
+        const errText =
           err.message.includes('Ollama') || err.message.includes('AI service')
             ? err.message
-            : 'Something went wrong. Please try again.',
+            : 'Something went wrong. Please try again.'
+        setMessages(prev => {
+          const existing = prev.find(m => m.id === botMsgId)
+          if (existing) {
+            return prev.map(m =>
+              m.id === botMsgId ? { ...m, isError: true, content: errText } : m
+            )
+          }
+          return [...prev, { id: botMsgId, type: 'bot', isError: true, content: errText }]
+        })
+      },
+      controller.signal,
+    )
+  }
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      if (!isStreaming && inputValue.trim()) {
+        handleSendMessage(e)
       }
-      setMessages(prev => [...prev, errMsg])
-    } finally {
-      setIsTyping(false)
     }
   }
 
   const handleSuggestedQuestion = (question) => {
     setInputValue(question)
+  }
+
+  const clearChat = () => {
+    if (window.confirm('Clear all chat history? This cannot be undone.')) {
+      setMessages([WELCOME_MESSAGE])
+      localStorage.removeItem('marketmind_chat_history')
+    }
   }
 
   return (
@@ -98,9 +219,16 @@ const Chatbot = () => {
           <FiMessageCircle className="bot-icon" />
           <div>
             <h1>AI Investment Assistant</h1>
-            <p>Powered by Gemma · Live NSE/BSE data · FinBERT sentiment</p>
           </div>
         </div>
+        <button 
+          onClick={clearChat} 
+          className="clear-chat-btn"
+          disabled={isStreaming || messages.length <= 1}
+          title="Clear chat history"
+        >
+          Clear Chat
+        </button>
       </div>
 
       <div className="chatbot-container">
@@ -151,16 +279,24 @@ const Chatbot = () => {
         </div>
 
         <form className="chat-input-form" onSubmit={handleSendMessage}>
-          <input
-            type="text"
-            placeholder="Ask about stocks, compare companies, or review your portfolio..."
+          <textarea
+            ref={textareaRef}
+            rows={1}
+            placeholder="Ask about stocks, compare companies... (Shift+Enter for new line)"
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
-            disabled={isTyping}
+            onKeyDown={handleKeyDown}
+            disabled={isStreaming}
           />
-          <button type="submit" disabled={!inputValue.trim() || isTyping}>
-            <FiSend />
-          </button>
+          {isStreaming ? (
+            <button type="button" className="stop-btn" onClick={stopStreaming} title="Stop response">
+              <FiSquare />
+            </button>
+          ) : (
+            <button type="submit" disabled={!inputValue.trim()}>
+              <FiSend />
+            </button>
+          )}
         </form>
       </div>
     </div>

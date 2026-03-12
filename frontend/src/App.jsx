@@ -9,6 +9,7 @@ import StockDetails from './pages/StockDetails'
 import Chatbot from './pages/Chatbot'
 import Profile from './pages/Profile'
 import About from './pages/About'
+import Terms from './pages/Terms'
 import Layout from './components/Layout'
 import './App.css'
 
@@ -25,6 +26,7 @@ function App() {
         <Route path="/" element={<LandingPage />} />
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
+        <Route path="/terms" element={<Terms />} />
         
         {/* Protected Routes with Sidebar */}
         <Route path="/dashboard" element={<Layout><Dashboard /></Layout>} />

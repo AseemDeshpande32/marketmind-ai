@@ -44,7 +44,7 @@ const LandingPage = () => {
           </p>
           <div className="hero-buttons">
             <Link to="/register" className="btn-primary">
-              Start Free Trial
+              Sign Up
               <FiArrowRight />
             </Link>
             <Link to="/login" className="btn-secondary">
@@ -56,10 +56,10 @@ const LandingPage = () => {
           <div className="hero-card">
             <div className="stock-preview">
               <div className="stock-header">
-                <span className="stock-symbol">AAPL</span>
-                <span className="stock-change positive">+2.45%</span>
+                <span className="stock-symbol">RELIANCE</span>
+                <span className="stock-change positive">+1.32%</span>
               </div>
-              <div className="stock-price">$178.52</div>
+              <div className="stock-price">&#8377;1,392.20</div>
               <div className="stock-graph">
                 <svg viewBox="0 0 100 40" className="graph-line">
                   <polyline
@@ -101,9 +101,29 @@ const LandingPage = () => {
           <h2>Ready to Transform Your Investment Strategy?</h2>
           <p>Join thousands of investors who trust MarketMind AI for smarter decisions.</p>
           <Link to="/register" className="btn-primary">
-            Get Started Now
+            Sign Up
             <FiArrowRight />
           </Link>
+        </div>
+      </section>
+
+      {/* Contact Section */}
+      <section className="contact-section" id="contact">
+        <div className="contact-content">
+          <h2>Get in Touch</h2>
+          <p>Have questions or feedback? We&apos;d love to hear from you.</p>
+          <div className="contact-cards">
+            <div className="contact-card">
+              <FiMessageSquare className="contact-icon" />
+              <h3>Support</h3>
+              <p>support@marketmind.ai</p>
+            </div>
+            <div className="contact-card">
+              <FiShield className="contact-icon" />
+              <h3>General Enquiries</h3>
+              <p>hello@marketmind.ai</p>
+            </div>
+          </div>
         </div>
       </section>
 

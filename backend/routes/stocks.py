@@ -263,6 +263,49 @@ def get_5paisa_historical(scrip_code):
         return jsonify({"error": str(e)}), 500
 
 
+# ─── /trending ──────────────────────────────────────────────────────────────
+
+# Nifty 50 pool — representative large-cap NSE stocks
+_NIFTY_POOL = [
+    "RELIANCE", "TCS", "INFY", "HDFCBANK", "ICICIBANK",
+    "HINDUNILVR", "BAJFINANCE", "SBIN", "BHARTIARTL", "KOTAKBANK",
+    "LT", "WIPRO", "HCLTECH", "AXISBANK", "ASIANPAINT",
+    "MARUTI", "SUNPHARMA", "TITAN", "ULTRACEMCO", "NESTLEIND",
+]
+
+@stocks_bp.route("/trending", methods=["GET"])
+def get_trending_stocks():
+    """GET /api/stocks/trending?limit=4
+    Returns the most active stocks from the Nifty pool sorted by volume.
+    Falls back to sort by highest absolute % change if volumes are zero.
+    """
+    try:
+        limit = min(int(request.args.get("limit", 4)), 10)
+    except (ValueError, TypeError):
+        limit = 4
+
+    results = []
+    for sym in _NIFTY_POOL:
+        try:
+            sc = script_master_service.get_scrip_code(sym, "N")
+            if not sc:
+                continue
+            snap = market_service.get_market_snapshot(sc, "N", "C")
+            data_arr = (snap.get("body") or snap).get("Data", [])
+            if not data_arr:
+                continue
+            results.append(_snapshot_to_dict(sym, sc, data_arr[0], "NSE"))
+        except Exception:
+            continue
+
+    if not results:
+        return jsonify({"trending": [], "count": 0}), 200
+
+    # Sort by volume descending; tie-break by absolute % change
+    results.sort(key=lambda s: (s["volume"], abs(s["changePercent"])), reverse=True)
+    return jsonify({"trending": results[:limit], "count": min(limit, len(results))}), 200
+
+
 # ─── /sentiment ───────────────────────────────────────────────────────────────
 
 @stocks_bp.route("/sentiment", methods=["POST"])

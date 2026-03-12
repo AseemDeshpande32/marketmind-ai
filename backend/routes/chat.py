@@ -1,12 +1,16 @@
 """
-Chat Route Blueprint — POST /api/chat
+Chat Route Blueprint — POST /api/chat  |  POST /api/chat/stream
 
 Accepts a JSON body { "message": "..." } and returns an AI-generated
 response from the MarketMind chat agent (Ollama / Gemma).
+
+/api/chat        — full response as JSON (legacy)
+/api/chat/stream — Server-Sent Events, one token at a time (streaming)
 """
 
+import json
 import logging
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, Response, request, jsonify, stream_with_context
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +23,10 @@ def chat():
     POST /api/chat
 
     Request body (JSON):
-        { "message": "Compare Wipro and Infosys" }
+        {
+          "message": "Compare Wipro and Infosys",
+          "history": [{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]  # optional
+        }
 
     Response (JSON):
         {
@@ -40,6 +47,7 @@ def chat():
         return jsonify({"error": "Request body must be JSON with a 'message' string"}), 400
 
     message = body["message"].strip()
+    history = body.get("history", [])
 
     if not message:
         return jsonify({"error": "Message cannot be empty"}), 400
@@ -50,7 +58,7 @@ def chat():
     # ── Delegate to agent ───────────────────────────────────────────────────
     try:
         from services.chat_service import process_chat
-        result = process_chat(message)
+        result = process_chat(message, history)
         return jsonify(result), 200
 
     except RuntimeError as exc:
@@ -75,3 +83,52 @@ def chat():
             "error":   "Internal server error",
             "message": str(exc),
         }), 500
+
+
+@chat_bp.route("/chat/stream", methods=["POST"])
+def chat_stream():
+    """
+    POST /api/chat/stream
+
+    Same request body as /api/chat (with optional history array).
+    Returns a text/event-stream (SSE) response where each event is a JSON object:
+
+      data: {"type": "meta",  "intent": "...", "data": {...}}
+      data: {"type": "token", "text": "..."}
+      data: {"type": "done"}
+      data: {"type": "error", "message": "..."}
+    """
+    body = request.get_json(silent=True)
+
+    if not body or not isinstance(body.get("message"), str):
+        return jsonify({"error": "Request body must be JSON with a 'message' string"}), 400
+
+    message = body["message"].strip()
+    history = body.get("history", [])
+
+    if not message:
+        return jsonify({"error": "Message cannot be empty"}), 400
+
+    if len(message) > 2000:
+        return jsonify({"error": "Message too long (maximum 2000 characters)"}), 400
+
+    def generate():
+        try:
+            from services.chat_service import stream_process_chat
+            for event in stream_process_chat(message, history):
+                yield f"data: {json.dumps(event)}\n\n"
+        except RuntimeError as exc:
+            logger.error("[CHAT STREAM] Ollama unavailable: %s", exc)
+            yield f"data: {json.dumps({'type': 'error', 'message': str(exc)})}\n\n"
+        except Exception as exc:
+            logger.exception("[CHAT STREAM] Unexpected error")
+            yield f"data: {json.dumps({'type': 'error', 'message': 'Internal server error'})}\n\n"
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control":    "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )

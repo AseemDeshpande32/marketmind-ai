@@ -14,6 +14,7 @@ export const setAuthToken = (token) => {
 export const removeAuthToken = () => {
   localStorage.removeItem('token');
   localStorage.removeItem('user');
+  localStorage.removeItem('marketmind_chat_history');
 };
 
 // Check if user is authenticated
@@ -63,6 +64,7 @@ export const login = async (email, password) => {
 
     // Save token and user info
     if (data.access_token) {
+      localStorage.removeItem('marketmind_chat_history');
       setAuthToken(data.access_token);
     }
 

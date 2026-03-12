@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { FiSearch, FiTrendingUp, FiTrendingDown, FiClock } from 'react-icons/fi'
 import { fetchNews } from '../services/newsService'
-import { searchStock } from '../services/stockService'
+import { getTrendingStocks } from '../services/stockService'
 import { searchScripmaster } from '../services/market5paisaService'
 import './Dashboard.css'
 
@@ -19,41 +19,19 @@ const Dashboard = () => {
   const [newsLoading, setNewsLoading] = useState(true)
   const [newsError, setNewsError] = useState(null)
 
-  // Popular Indian stocks to display as trending
-  const popularStocks = ['RELIANCE', 'TCS', 'INFY', 'HDFCBANK', 'WIPRO']
-
   // Fetch trending stocks on mount
   useEffect(() => {
-    const fetchTrendingStocks = async () => {
+    const fetchTrending = async () => {
       setLoadingStocks(true)
       try {
-        console.log('Fetching trending stocks...')
-        // Fetch data for popular Indian stocks
-        const stockPromises = popularStocks.map(symbol => 
-          searchStock(symbol).catch(err => {
-            console.error(`Error fetching ${symbol}:`, err)
-            return null
-          })
-        )
-        
-        const results = await Promise.all(stockPromises)
-        console.log('Stock API results:', results)
-        
-        // Filter out failed requests and format data
-        const validStocks = results
-          .filter(stock => stock && !stock.error)
-          .map(stock => {
-            return {
-              symbol: stock.symbol,
-              name: stock.name,
-              price: stock.price,
-              change: stock.change,
-              changePercent: stock.changePercent
-            }
-          })
-        
-        console.log('Valid trending stocks:', validStocks)
-        setTrendingStocks(validStocks)
+        const stocks = await getTrendingStocks(4)
+        setTrendingStocks(stocks.map(s => ({
+          symbol: s.symbol,
+          name: s.name,
+          price: s.price,
+          change: s.change,
+          changePercent: s.changePercent,
+        })))
       } catch (error) {
         console.error('Error loading trending stocks:', error)
       } finally {
@@ -61,7 +39,7 @@ const Dashboard = () => {
       }
     }
 
-    fetchTrendingStocks()
+    fetchTrending()
   }, [])
 
   // Fetch news from backend on component mount

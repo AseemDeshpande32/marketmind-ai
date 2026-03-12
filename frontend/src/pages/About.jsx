@@ -27,10 +27,10 @@ const About = () => {
 
   const teamMembers = [
     {
-      name: 'Your Name',
+      name: 'Aseem Jatin Deshpande',
       role: 'Developer & Creator',
       bio: 'Final year student passionate about AI and fintech. Building MarketMind AI as a capstone project.',
-      avatar: 'YN'
+      avatar: 'AD'
     }
   ]
 

@@ -126,6 +126,7 @@ _PORTFOLIO_RE = [
     re.compile(r"\bmy stocks?\b",             re.IGNORECASE),
     re.compile(r"\bmy holdings?\b",           re.IGNORECASE),
     re.compile(r"\bmy investments?\b",        re.IGNORECASE),
+    re.compile(r"\b\d+\s*(shares?|units?)\s*(of)?\s+[A-Za-z]", re.IGNORECASE),
     # "TCS 5" or "TCS:5" or "TCS - 5" patterns
     re.compile(r"\b[A-Z]{2,10}\s*[:\-]\s*\d+\b"),
 ]
@@ -208,36 +209,88 @@ def _extract_portfolio_items(message: str) -> List[Dict[str, Any]]:
       "TCS 5, Infosys 10, Reliance 3"
       "TCS:5 INFY:10 RELIANCE:3"
       "I have TCS - 5 shares and Infosys - 10 shares"
+      "10 shares of MRF, 15 shares of Reliance, 10 shares of TCS"
     Returns list of dicts: { symbol, name, qty }
     """
-    items: List[Dict[str, Any]] = []
-    seen: set = set()
+    qty_by_symbol: Dict[str, Dict[str, Any]] = {}
 
-    # Pattern: word(s) followed by optional separator and a number
-    pat = re.compile(
-        r"([A-Za-z][A-Za-z0-9\s&\.\-]{0,30}?)\s*[:\-]?\s*(\d+)\s*(?:shares?|units?)?",
+    def _resolve_symbol(raw_name: str) -> str:
+        name_lower = raw_name.lower().strip()
+        symbol = raw_name.upper().strip()
+        for key in sorted(KNOWN_STOCKS, key=len, reverse=True):
+            if key in name_lower:
+                return KNOWN_STOCKS[key]
+        return symbol
+
+    def _add_item(raw_name: str, qty: int) -> None:
+        clean_name = re.sub(r"\b(of|shares?|units?|and)\b", " ", raw_name, flags=re.IGNORECASE)
+        clean_name = re.sub(r"\s+", " ", clean_name).strip(" ,.-")
+        if qty <= 0 or not clean_name:
+            return
+
+        # Reject multi-word names that are too long (likely extracted junk)
+        words = clean_name.split()
+        if len(words) > 3:
+            logger.debug(f"[CHAT] Portfolio: skipping name with >3 words: {clean_name}")
+            return
+
+        symbol = _resolve_symbol(clean_name)
+
+        # STRICT VALIDATION: Only accept known stocks or valid 2-10 char uppercase symbols
+        known_symbols = set(KNOWN_STOCKS.values())
+        
+        # Accept if it's a known stock symbol
+        if symbol in known_symbols:
+            if symbol in qty_by_symbol:
+                qty_by_symbol[symbol]["qty"] += qty
+                return
+            qty_by_symbol[symbol] = {
+                "symbol": symbol,
+                "name": clean_name,
+                "qty": qty,
+            }
+            return
+
+        # Accept if it's a plausible NSE symbol (2-10 uppercase letters, hyphens, no lowercase)
+        if re.match(r"^[A-Z][A-Z0-9\-]{0,9}$", symbol) and "-" not in symbol.lstrip("_"):
+            if symbol in qty_by_symbol:
+                qty_by_symbol[symbol]["qty"] += qty
+                return
+            qty_by_symbol[symbol] = {
+                "symbol": symbol,
+                "name": clean_name,
+                "qty": qty,
+            }
+            return
+
+        # Otherwise reject as junk
+        logger.debug(f"[CHAT] Portfolio: rejecting invalid symbol: {symbol} from '{clean_name}'")
+
+    # Pattern 1: name then quantity ("TCS 10", "Reliance:15", "Infosys - 5 shares")
+    # Must have quantity directly after name, optional separator, optional quantity keyword
+    name_first_pat = re.compile(
+        r"\b([A-Za-z][A-Za-z0-9\s&\.\-]{1,20}?)\s*[:\-]?\s*(\d+)\s*(?:shares?|units?)?\b",
         re.IGNORECASE,
     )
 
-    for match in pat.finditer(message):
-        raw_name = match.group(1).strip().rstrip("- ").strip()
-        qty = int(match.group(2))
-        if qty == 0 or not raw_name:
-            continue
+    # Pattern 2: quantity then name ("10 shares of MRF", "15 units Reliance")
+    # Strict: number + (shares|units) + (of)? + stock name 
+    qty_first_pat = re.compile(
+        r"(\d+)\s+(?:shares?|units?)\s+(?:of\s+)?([A-Za-z][A-Za-z0-9\s\-]{1,20}?)(?=\s*[,\.;]|\s+and|\s*$)",
+        re.IGNORECASE,
+    )
 
-        name_lower = raw_name.lower()
-        # Resolve symbol
-        symbol = raw_name.upper()
-        for key in sorted(KNOWN_STOCKS, key=len, reverse=True):
-            if key in name_lower:
-                symbol = KNOWN_STOCKS[key]
-                break
+    for qty, raw_name in qty_first_pat.findall(message):
+        _add_item(raw_name, int(qty))
 
-        if symbol not in seen:
-            seen.add(symbol)
-            items.append({"symbol": symbol, "name": raw_name.strip(), "qty": qty})
+    for raw_name, qty in name_first_pat.findall(message):
+        _add_item(raw_name, int(qty))
 
-    return items
+    result = list(qty_by_symbol.values())
+    logger.info(f"[CHAT] Portfolio extraction: extracted {len(result)} unique items from message")
+    for item in result:
+        logger.info(f"[CHAT]   - {item['symbol']}: {item['qty']} shares")
+    return result
 
 
 # ── Data-fetching helpers ──────────────────────────────────────────────────────

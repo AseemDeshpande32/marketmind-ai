@@ -1,7 +1,7 @@
 import { useParams, useNavigate } from 'react-router-dom'
 import { useState, useEffect, useCallback } from 'react'
-import { FiArrowLeft, FiTrendingUp, FiTrendingDown, FiBarChart2, FiActivity, FiCpu } from 'react-icons/fi'
-import { searchStock } from '../services/stockService'
+import { FiArrowLeft, FiTrendingUp, FiTrendingDown, FiBarChart2, FiActivity, FiCpu, FiStar } from 'react-icons/fi'
+import { searchStock, addToWatchlist, removeFromWatchlist, getWatchlist } from '../services/stockService'
 import { searchStockByName } from '../services/market5paisaService'
 import { useStockWebSocket } from '../hooks/useStockWebSocket'
 import CandlestickChart from '../components/CandlestickChart'
@@ -52,6 +52,9 @@ const StockDetails = () => {
   const [prevClose,         setPrevClose]          = useState(null)
   const [priceFlash, setPriceFlash] = useState(null)  // 'up' | 'down' | null
   const [marketOpen, setMarketOpen] = useState(isMarketOpen())
+  const [watchlistLoading, setWatchlistLoading] = useState(false)
+  const [watchlistMessage, setWatchlistMessage] = useState('')
+  const [inWatchlist, setInWatchlist] = useState(false)
 
   // Check market hours periodically
   useEffect(() => {
@@ -103,6 +106,21 @@ const StockDetails = () => {
   }, [symbol, exchange])
 
   useEffect(() => { fetchStockData() }, [fetchStockData])
+
+  const syncWatchlistStatus = useCallback(async () => {
+    if (!stockData?.symbol) return
+    try {
+      const list = await getWatchlist()
+      const current = stockData.symbol.toUpperCase()
+      setInWatchlist(list.some((item) => (item.symbol || '').toUpperCase() === current))
+    } catch {
+      setInWatchlist(false)
+    }
+  }, [stockData])
+
+  useEffect(() => {
+    syncWatchlistStatus()
+  }, [syncWatchlistStatus])
 
   // ── Process WebSocket ticks ────────────────────────────────────────────────
   useEffect(() => {
@@ -177,6 +195,31 @@ const StockDetails = () => {
     }
   }, [stockData])
 
+  const handleWatchlistAction = useCallback(async () => {
+    if (!stockData?.symbol) return
+    setWatchlistLoading(true)
+    setWatchlistMessage('')
+    try {
+      if (inWatchlist) {
+        await removeFromWatchlist(stockData.symbol)
+        setInWatchlist(false)
+        setWatchlistMessage('Removed from watchlist')
+      } else {
+        await addToWatchlist({
+          symbol: stockData.symbol,
+          name: stockData.name,
+          exchange: exchange === 'N' ? 'NSE' : 'BSE',
+        })
+        setInWatchlist(true)
+        setWatchlistMessage('Added to watchlist')
+      }
+    } catch (err) {
+      setWatchlistMessage(err.message || 'Failed to update watchlist')
+    } finally {
+      setWatchlistLoading(false)
+    }
+  }, [stockData, inWatchlist, exchange])
+
   // ─────────────────────────────────────────────────────────────────────────
   return (
     <div className="stock-details">
@@ -220,6 +263,20 @@ const StockDetails = () => {
                   className={`toggle-btn ${exchange === 'B' ? 'active' : ''}`}
                   onClick={() => setExchange('B')}
                 >BSE</button>
+              </div>
+
+              <div className="watchlist-actions">
+                <button
+                  className={`watchlist-btn ${inWatchlist ? 'added remove' : ''}`}
+                  onClick={handleWatchlistAction}
+                  disabled={watchlistLoading}
+                >
+                  <FiStar />
+                  {watchlistLoading
+                    ? (inWatchlist ? 'Removing...' : 'Adding...')
+                    : (inWatchlist ? 'Remove from Watchlist' : 'Add to Watchlist')}
+                </button>
+                {watchlistMessage && <span className="watchlist-message">{watchlistMessage}</span>}
               </div>
             </div>
 

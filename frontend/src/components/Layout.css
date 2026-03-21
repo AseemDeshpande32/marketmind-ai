@@ -7,7 +7,7 @@
   flex: 1;
   margin-left: 250px;
   padding: 2rem;
-  background: linear-gradient(135deg, #0a0a0f 0%, #1a1a2e 100%);
+  background: var(--bg-primary);
   min-height: 100vh;
 }
 
@@ -17,3 +17,10 @@
     padding: 1rem;
   }
 }
+
+
+
+
+
+
+

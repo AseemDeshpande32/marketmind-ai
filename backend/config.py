@@ -31,5 +31,5 @@ class Config:
     
     # News API Configuration
     NEWS_API_KEY = os.getenv("NEWS_API_KEY")
-    NEWS_API_URL = os.getenv("NEWS_API_URL")
+    NEWS_API_URL = os.getenv("NEWS_API_URL", "https://www.alphavantage.co/query")
     NEWSAPI_KEY = os.getenv("NEWSAPI_KEY")  # NewsAPI.org key

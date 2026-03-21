@@ -18,7 +18,7 @@
 }
 
 .welcome-section p {
-  color: #a0a0b0;
+  color: var(--text-secondary);
   font-size: 1.1rem;
 }
 
@@ -26,20 +26,20 @@
   display: flex;
   align-items: center;
   background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--border-color);
   border-radius: 16px;
   padding: 0.5rem;
   transition: all 0.3s ease;
 }
 
 .search-bar:focus-within {
-  border-color: #00d4ff;
-  box-shadow: 0 0 20px rgba(0, 212, 255, 0.1);
+  border-color: var(--accent-primary);
+  box-shadow: none;
 }
 
 .search-icon {
   font-size: 1.25rem;
-  color: #a0a0b0;
+  color: var(--text-secondary);
   margin: 0 1rem;
 }
 
@@ -47,7 +47,7 @@
   flex: 1;
   background: transparent;
   border: none;
-  color: #ffffff;
+  color: var(--text-primary);
   font-size: 1rem;
   padding: 0.75rem 0;
 }
@@ -62,10 +62,10 @@
 
 .search-bar button {
   padding: 0.75rem 1.5rem;
-  background: linear-gradient(135deg, #00d4ff 0%, #7c3aed 100%);
+  background: var(--btn-gradient);
   border: none;
   border-radius: 12px;
-  color: #ffffff;
+  color: var(--text-primary);
   font-weight: 600;
   cursor: pointer;
   transition: all 0.3s ease;
@@ -73,7 +73,7 @@
 
 .search-bar button:hover {
   transform: scale(1.02);
-  box-shadow: 0 5px 20px rgba(0, 212, 255, 0.3);
+  box-shadow: none;
 }
 
 /* Autocomplete wrapper */
@@ -89,7 +89,7 @@
   left: 0;
   right: 0;
   background: #12122a;
-  border: 1px solid rgba(0, 212, 255, 0.25);
+  border: 1px solid rgba(59, 130, 246, 0.2);
   border-radius: 12px;
   list-style: none;
   margin: 0;
@@ -97,7 +97,7 @@
   z-index: 999;
   max-height: 260px;
   overflow-y: auto;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  box-shadow: none;
 }
 
 .search-dropdown li {
@@ -110,18 +110,18 @@
 }
 
 .search-dropdown li:hover {
-  background: rgba(0, 212, 255, 0.08);
+  background: rgba(59, 130, 246, 0.08);
 }
 
 .sd-symbol {
   font-weight: 700;
-  color: #00d4ff;
+  color: var(--accent-primary);
   min-width: 90px;
   font-size: 0.95rem;
 }
 
 .sd-name {
-  color: #a0a0b0;
+  color: var(--text-secondary);
   font-size: 0.88rem;
   white-space: nowrap;
   overflow: hidden;
@@ -133,8 +133,8 @@
   gap: 2rem;
 }
 
-/* Trending Stocks Section */
-.trending-section h2,
+/* Watchlist and News Section */
+.watchlist-section h2,
 .news-section h2 {
   display: flex;
   align-items: center;
@@ -142,12 +142,12 @@
   font-size: 1.5rem;
   font-weight: 600;
   margin-bottom: 1.5rem;
-  color: #ffffff;
+  color: var(--text-primary);
 }
 
-.trending-section h2 svg,
+.watchlist-section h2 svg,
 .news-section h2 svg {
-  color: #00d4ff;
+  color: var(--accent-primary);
 }
 
 .stocks-grid {
@@ -157,8 +157,8 @@
 }
 
 .stock-card {
-  background: linear-gradient(145deg, rgba(26, 26, 46, 0.6) 0%, rgba(18, 18, 26, 0.8) 100%);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--surface-color);
+  border: 1px solid var(--border-color);
   border-radius: 16px;
   padding: 1.5rem;
   cursor: pointer;
@@ -167,8 +167,8 @@
 
 .stock-card:hover {
   transform: translateY(-3px);
-  border-color: rgba(0, 212, 255, 0.3);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+  border-color: rgba(59, 130, 246, 0.2);
+  box-shadow: none;
 }
 
 .stock-card.loading-card {
@@ -200,12 +200,12 @@
 .stock-symbol {
   font-size: 1.25rem;
   font-weight: 700;
-  color: #ffffff;
+  color: var(--text-primary);
 }
 
 .stock-name {
   font-size: 0.9rem;
-  color: #a0a0b0;
+  color: var(--text-secondary);
   margin-top: 0.25rem;
 }
 
@@ -247,8 +247,8 @@
 }
 
 .news-card {
-  background: linear-gradient(145deg, rgba(26, 26, 46, 0.6) 0%, rgba(18, 18, 26, 0.8) 100%);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--surface-color);
+  border: 1px solid var(--border-color);
   border-radius: 16px;
   padding: 1.5rem;
   cursor: pointer;
@@ -256,18 +256,18 @@
 }
 
 .news-card:hover {
-  border-color: rgba(0, 212, 255, 0.3);
+  border-color: rgba(59, 130, 246, 0.2);
   transform: translateX(5px);
 }
 
 .news-category {
   display: inline-block;
   padding: 0.25rem 0.75rem;
-  background: linear-gradient(135deg, rgba(0, 212, 255, 0.2) 0%, rgba(124, 58, 237, 0.2) 100%);
+  background: rgba(59, 130, 246, 0.10);
   border-radius: 6px;
   font-size: 0.8rem;
   font-weight: 600;
-  color: #00d4ff;
+  color: var(--accent-primary);
   margin-bottom: 0.75rem;
 }
 
@@ -282,7 +282,7 @@
   display: flex;
   gap: 1rem;
   font-size: 0.9rem;
-  color: #a0a0b0;
+  color: var(--text-secondary);
 }
 
 .news-source {
@@ -302,3 +302,10 @@
     font-size: 1.5rem;
   }
 }
+
+
+
+
+
+
+

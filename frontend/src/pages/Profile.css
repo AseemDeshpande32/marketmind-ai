@@ -29,15 +29,15 @@
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 10px;
-  color: #a0a0b0;
+  color: var(--text-secondary);
   cursor: pointer;
   transition: all 0.3s ease;
 }
 
 .settings-btn:hover {
-  border-color: rgba(0, 212, 255, 0.5);
-  color: #00d4ff;
-  background: rgba(0, 212, 255, 0.1);
+  border-color: rgba(59, 130, 246, 0.35);
+  color: var(--accent-primary);
+  background: rgba(59, 130, 246, 0.1);
 }
 
 .edit-btn {
@@ -45,16 +45,16 @@
   align-items: center;
   gap: 0.5rem;
   padding: 0.75rem 1.5rem;
-  background: linear-gradient(135deg, rgba(0, 212, 255, 0.2) 0%, rgba(124, 58, 237, 0.2) 100%);
-  border: 1px solid rgba(0, 212, 255, 0.3);
+  background: rgba(59, 130, 246, 0.10);
+  border: 1px solid rgba(59, 130, 246, 0.2);
   border-radius: 10px;
-  color: #00d4ff;
+  color: var(--accent-primary);
   cursor: pointer;
   transition: all 0.3s ease;
 }
 
 .edit-btn:hover {
-  background: linear-gradient(135deg, rgba(0, 212, 255, 0.3) 0%, rgba(124, 58, 237, 0.3) 100%);
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.2) 0%, rgba(59, 130, 246, 0.16) 100%);
 }
 
 .edit-actions {
@@ -67,14 +67,14 @@
   background: transparent;
   border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 10px;
-  color: #a0a0b0;
+  color: var(--text-secondary);
   cursor: pointer;
   transition: all 0.3s ease;
 }
 
 .cancel-btn:hover {
   border-color: rgba(255, 255, 255, 0.4);
-  color: #ffffff;
+  color: var(--text-primary);
 }
 
 .save-btn {
@@ -82,17 +82,17 @@
   align-items: center;
   gap: 0.5rem;
   padding: 0.75rem 1.5rem;
-  background: linear-gradient(135deg, #00d4ff 0%, #7c3aed 100%);
+  background: var(--btn-gradient);
   border: none;
   border-radius: 10px;
-  color: #ffffff;
+  color: var(--text-primary);
   cursor: pointer;
   transition: all 0.3s ease;
 }
 
 .save-btn:hover {
   transform: translateY(-2px);
-  box-shadow: 0 5px 20px rgba(0, 212, 255, 0.3);
+  box-shadow: none;
 }
 
 .profile-content {
@@ -102,8 +102,8 @@
 }
 
 .profile-card {
-  background: linear-gradient(145deg, rgba(26, 26, 46, 0.6) 0%, rgba(18, 18, 26, 0.8) 100%);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--surface-color);
+  border: 1px solid var(--border-color);
   border-radius: 20px;
   padding: 2rem;
 }
@@ -114,21 +114,21 @@
   gap: 1.5rem;
   margin-bottom: 2rem;
   padding-bottom: 2rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  border-bottom: 1px solid var(--border-color);
 }
 
 .avatar {
   position: relative;
   width: 100px;
   height: 100px;
-  background: linear-gradient(135deg, #00d4ff 0%, #7c3aed 100%);
+  background: var(--btn-gradient);
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 2rem;
   font-weight: 700;
-  color: #ffffff;
+  color: var(--text-primary);
 }
 
 .avatar-edit {
@@ -137,10 +137,10 @@
   right: 0;
   width: 32px;
   height: 32px;
-  background: #1a1a2e;
-  border: 2px solid #00d4ff;
+  background: var(--surface-color);
+  border: 2px solid var(--accent-primary);
   border-radius: 50%;
-  color: #00d4ff;
+  color: var(--accent-primary);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -154,7 +154,7 @@
 }
 
 .member-since {
-  color: #a0a0b0;
+  color: var(--text-secondary);
   font-size: 0.9rem;
 }
 
@@ -173,7 +173,7 @@
 
 .info-icon {
   font-size: 1.25rem;
-  color: #00d4ff;
+  color: var(--accent-primary);
   margin-top: 0.25rem;
 }
 
@@ -184,34 +184,34 @@
 .info-content label {
   display: block;
   font-size: 0.85rem;
-  color: #a0a0b0;
+  color: var(--text-secondary);
   margin-bottom: 0.25rem;
 }
 
 .info-content span {
   font-size: 1rem;
-  color: #ffffff;
+  color: var(--text-primary);
 }
 
 .info-content input {
   width: 100%;
   padding: 0.75rem;
   background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--border-color);
   border-radius: 8px;
-  color: #ffffff;
+  color: var(--text-primary);
   font-size: 1rem;
 }
 
 .info-content input:focus {
   outline: none;
-  border-color: #00d4ff;
+  border-color: var(--accent-primary);
 }
 
 .bio-section label {
   display: block;
   font-size: 0.85rem;
-  color: #a0a0b0;
+  color: var(--text-secondary);
   margin-bottom: 0.5rem;
 }
 
@@ -224,9 +224,9 @@
   width: 100%;
   padding: 1rem;
   background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--border-color);
   border-radius: 12px;
-  color: #ffffff;
+  color: var(--text-primary);
   font-size: 1rem;
   resize: vertical;
   font-family: inherit;
@@ -234,7 +234,7 @@
 
 .bio-section textarea:focus {
   outline: none;
-  border-color: #00d4ff;
+  border-color: var(--accent-primary);
 }
 
 /* Investment Profile */
@@ -254,17 +254,17 @@
 .option-group label {
   display: block;
   font-size: 0.85rem;
-  color: #a0a0b0;
+  color: var(--text-secondary);
   margin-bottom: 0.5rem;
 }
 
 .option-value {
   display: inline-block;
   padding: 0.5rem 1rem;
-  background: linear-gradient(135deg, rgba(0, 212, 255, 0.1) 0%, rgba(124, 58, 237, 0.1) 100%);
-  border: 1px solid rgba(0, 212, 255, 0.2);
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(59, 130, 246, 0.08) 100%);
+  border: 1px solid rgba(59, 130, 246, 0.12);
   border-radius: 8px;
-  color: #00d4ff;
+  color: var(--accent-primary);
   font-weight: 500;
 }
 
@@ -272,20 +272,20 @@
   width: 100%;
   padding: 0.75rem;
   background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--border-color);
   border-radius: 8px;
-  color: #ffffff;
+  color: var(--text-primary);
   font-size: 1rem;
 }
 
 .option-group select:focus {
   outline: none;
-  border-color: #00d4ff;
+  border-color: var(--accent-primary);
 }
 
 .option-group select option {
-  background: #1a1a2e;
-  color: #ffffff;
+  background: var(--surface-color);
+  color: var(--text-primary);
 }
 
 /* Stats Card */
@@ -306,21 +306,18 @@
   display: block;
   font-size: 2rem;
   font-weight: 700;
-  background: linear-gradient(135deg, #00d4ff 0%, #7c3aed 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  color: var(--accent-primary);
   margin-bottom: 0.5rem;
 }
 
 .stat-label {
   font-size: 0.9rem;
-  color: #a0a0b0;
+  color: var(--text-secondary);
 }
 
 .stat-label {
   font-size: 0.9rem;
-  color: #a0a0b0;
+  color: var(--text-secondary);
 }
 
 /* Settings Modal */
@@ -339,14 +336,14 @@
 }
 
 .settings-content {
-  background: linear-gradient(145deg, rgba(26, 26, 46, 0.95) 0%, rgba(18, 18, 26, 0.95) 100%);
-  border: 1px solid rgba(0, 212, 255, 0.3);
+  background: var(--surface-color);
+  border: 1px solid rgba(59, 130, 246, 0.2);
   border-radius: 20px;
   width: 90%;
   max-width: 500px;
   max-height: 80vh;
   overflow-y: auto;
-  box-shadow: 0 10px 40px rgba(0, 212, 255, 0.2);
+  box-shadow: none;
 }
 
 .settings-header {
@@ -354,22 +351,19 @@
   justify-content: space-between;
   align-items: center;
   padding: 1.5rem 2rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  border-bottom: 1px solid var(--border-color);
 }
 
 .settings-header h2 {
   font-size: 1.5rem;
   font-weight: 600;
-  background: linear-gradient(135deg, #00d4ff 0%, #7c3aed 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  color: var(--text-primary);
 }
 
 .close-btn {
   background: transparent;
   border: none;
-  color: #a0a0b0;
+  color: var(--text-secondary);
   font-size: 2rem;
   cursor: pointer;
   transition: color 0.3s ease;
@@ -382,7 +376,7 @@
 }
 
 .close-btn:hover {
-  color: #ffffff;
+  color: var(--text-primary);
 }
 
 .settings-body {
@@ -399,7 +393,7 @@
 
 .setting-item h3 {
   font-size: 1rem;
-  color: #a0a0b0;
+  color: var(--text-secondary);
   margin-bottom: 1rem;
   text-transform: uppercase;
   letter-spacing: 1px;
@@ -409,9 +403,9 @@
   width: 100%;
   padding: 1rem 1.5rem;
   background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--border-color);
   border-radius: 10px;
-  color: #ffffff;
+  color: var(--text-primary);
   text-align: left;
   cursor: pointer;
   transition: all 0.3s ease;
@@ -424,7 +418,7 @@
 
 .setting-option:hover {
   background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(0, 212, 255, 0.3);
+  border-color: rgba(59, 130, 246, 0.2);
   transform: translateX(5px);
 }
 
@@ -455,7 +449,7 @@
 
 .form-group label {
   display: block;
-  color: #a0a0b0;
+  color: var(--text-secondary);
   font-size: 0.9rem;
   margin-bottom: 0.5rem;
 }
@@ -464,16 +458,16 @@
   width: 100%;
   padding: 0.75rem 1rem;
   background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--border-color);
   border-radius: 10px;
-  color: #ffffff;
+  color: var(--text-primary);
   font-size: 1rem;
   transition: border-color 0.3s ease;
 }
 
 .form-group input:focus {
   outline: none;
-  border-color: #00d4ff;
+  border-color: var(--accent-primary);
 }
 
 /* Modal Actions */
@@ -493,9 +487,9 @@
 }
 
 .delete-btn {
-  background: linear-gradient(135deg, #ff4444 0%, #cc0000 100%);
+  background: var(--danger-gradient);
   border: none;
-  color: #ffffff;
+  color: var(--text-primary);
   font-weight: 600;
 }
 
@@ -536,9 +530,9 @@
 }
 
 .success-message {
-  background: rgba(0, 212, 255, 0.1);
-  border: 1px solid rgba(0, 212, 255, 0.3);
-  color: #00d4ff;
+  background: rgba(59, 130, 246, 0.1);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+  color: var(--accent-primary);
   padding: 0.75rem 1rem;
   border-radius: 8px;
   margin-top: 1rem;
@@ -561,8 +555,8 @@
 .spinner {
   width: 50px;
   height: 50px;
-  border: 4px solid rgba(0, 212, 255, 0.2);
-  border-top-color: #00d4ff;
+  border: 4px solid rgba(59, 130, 246, 0.12);
+  border-top-color: var(--accent-primary);
   border-radius: 50%;
   animation: spin 1s linear infinite;
   margin-bottom: 1rem;
@@ -573,7 +567,7 @@
 }
 
 .loading-container p {
-  color: #a0a0b0;
+  color: var(--text-secondary);
   font-size: 1rem;
 }
 
@@ -593,3 +587,10 @@
     grid-template-columns: 1fr;
   }
 }
+
+
+
+
+
+
+

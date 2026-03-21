@@ -14,7 +14,7 @@
   width: 100%;
   padding: 16px 50px 16px 50px;
   font-size: 16px;
-  border: 2px solid rgba(255, 255, 255, 0.1);
+  border: 2px solid var(--border-color);
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.05);
   color: #fff;
@@ -28,7 +28,7 @@
   outline: none;
   border-color: #3b82f6;
   background: rgba(255, 255, 255, 0.08);
-  box-shadow: 0 0 20px rgba(59, 130, 246, 0.2);
+  box-shadow: none;
 }
 
 .search-input::placeholder {
@@ -72,11 +72,11 @@
   right: 0;
   background: rgba(20, 20, 20, 0.95);
   backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--border-color);
   border-radius: 12px;
   overflow: hidden;
   z-index: 1000;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  box-shadow: none;
   animation: slideDown 0.2s ease;
 }
 
@@ -94,7 +94,7 @@
 .suggestions-header {
   padding: 12px 16px;
   background: rgba(59, 130, 246, 0.1);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  border-bottom: 1px solid var(--border-color);
   color: #3b82f6;
   font-size: 13px;
   font-weight: 600;
@@ -207,3 +207,10 @@
     font-size: 12px;
   }
 }
+
+
+
+
+
+
+

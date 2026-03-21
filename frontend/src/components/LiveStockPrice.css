@@ -1,8 +1,8 @@
 .live-stock-price {
-  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+  background: var(--surface-color);
   border-radius: 16px;
   padding: 24px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  box-shadow: none;
   color: #fff;
   min-width: 300px;
 }
@@ -18,7 +18,7 @@
 }
 
 .spinner {
-  border: 3px solid rgba(255, 255, 255, 0.1);
+  border: 3px solid var(--border-color);
   border-top: 3px solid #00d9ff;
   border-radius: 50%;
   width: 40px;
@@ -110,7 +110,7 @@
 }
 
 .price-details {
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  border-top: 1px solid var(--border-color);
   padding-top: 20px;
   display: grid;
   gap: 12px;
@@ -155,3 +155,10 @@
     font-size: 16px;
   }
 }
+
+
+
+
+
+
+

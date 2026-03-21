@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { FiSearch, FiTrendingUp, FiTrendingDown, FiClock } from 'react-icons/fi'
+import { FiSearch, FiTrendingUp, FiTrendingDown, FiClock, FiStar } from 'react-icons/fi'
 import { fetchNews } from '../services/newsService'
-import { getTrendingStocks } from '../services/stockService'
+import { getWatchlist, getBatchQuotes } from '../services/stockService'
 import { searchScripmaster } from '../services/market5paisaService'
 import './Dashboard.css'
 
@@ -13,33 +13,50 @@ const Dashboard = () => {
   const [showDropdown, setShowDropdown] = useState(false)
   const searchRef = useRef(null)
   const debounceRef = useRef(null)
-  const [trendingStocks, setTrendingStocks] = useState([])
-  const [loadingStocks, setLoadingStocks] = useState(true)
+  const [watchlistStocks, setWatchlistStocks] = useState([])
+  const [watchlistLoading, setWatchlistLoading] = useState(true)
+  const [watchlistError, setWatchlistError] = useState(null)
   const [newsItems, setNewsItems] = useState([])
   const [newsLoading, setNewsLoading] = useState(true)
   const [newsError, setNewsError] = useState(null)
 
-  // Fetch trending stocks on mount
+  // Fetch watchlist stocks on mount
   useEffect(() => {
-    const fetchTrending = async () => {
-      setLoadingStocks(true)
+    const loadWatchlist = async () => {
+      setWatchlistLoading(true)
+      setWatchlistError(null)
       try {
-        const stocks = await getTrendingStocks(4)
-        setTrendingStocks(stocks.map(s => ({
-          symbol: s.symbol,
-          name: s.name,
-          price: s.price,
-          change: s.change,
-          changePercent: s.changePercent,
-        })))
+        const list = await getWatchlist()
+        if (!list.length) {
+          setWatchlistStocks([])
+          return
+        }
+
+        const symbols = list.map((item) => item.symbol)
+        const quotes = await getBatchQuotes(symbols)
+        const quoteBySymbol = new Map(quotes.map((q) => [q.symbol, q]))
+
+        const merged = list.map((item) => {
+          const quote = quoteBySymbol.get(item.symbol) || {}
+          return {
+            symbol: item.symbol,
+            name: item.name || item.symbol,
+            price: quote.current_price,
+            change: quote.price_change,
+            changePercent: quote.price_change_percent,
+          }
+        })
+
+        setWatchlistStocks(merged)
       } catch (error) {
-        console.error('Error loading trending stocks:', error)
+        console.error('Error loading watchlist:', error)
+        setWatchlistError('Failed to load your watchlist')
       } finally {
-        setLoadingStocks(false)
+        setWatchlistLoading(false)
       }
     }
 
-    fetchTrending()
+    loadWatchlist()
   }, [])
 
   // Fetch news from backend on component mount
@@ -105,10 +122,6 @@ const Dashboard = () => {
       return 'Recently'
     }
   }
-
-  useEffect(() => {
-    fetchNews()
-  }, [])
 
   const handleSearch = (e) => {
     e.preventDefault()
@@ -184,13 +197,20 @@ const Dashboard = () => {
       </div>
 
       <div className="dashboard-content">
-        {/* Trending Stocks Section */}
-        <section className="trending-section">
+        {/* Watchlist Section */}
+        <section className="watchlist-section">
           <h2>
-            <FiTrendingUp /> Trending Indian Stocks
-            {loadingStocks && <span style={{fontSize: '14px', marginLeft: '10px', color: '#666'}}>Loading...</span>}
+            <FiStar /> Your Watchlist
+            {watchlistLoading && <span style={{fontSize: '14px', marginLeft: '10px', color: '#666'}}>Loading...</span>}
           </h2>
-          {loadingStocks ? (
+
+          {watchlistError && (
+            <div style={{padding: '15px', backgroundColor: '#fee', color: '#c33', borderRadius: '8px', marginBottom: '15px'}}>
+              {watchlistError}
+            </div>
+          )}
+
+          {watchlistLoading ? (
             <div className="stocks-grid">
               {[1, 2, 3, 4, 5, 6].map(i => (
                 <div key={i} className="stock-card loading-card">
@@ -200,7 +220,13 @@ const Dashboard = () => {
             </div>
           ) : (
             <div className="stocks-grid">
-              {trendingStocks.map((stock) => (
+              {watchlistStocks.length === 0 && (
+                <p style={{ color: '#a0a0b0' }}>
+                  Your watchlist is empty. Open a stock and click "Add to Watchlist".
+                </p>
+              )}
+
+              {watchlistStocks.map((stock) => (
                 <div
                   key={stock.symbol}
                   className="stock-card"
@@ -211,11 +237,13 @@ const Dashboard = () => {
                     <span className="stock-name">{stock.name}</span>
                   </div>
                   <div className="stock-data">
-                    <span className="stock-price">₹{stock.price?.toFixed(2)}</span>
-                    <span className={`stock-change ${stock.change >= 0 ? 'positive' : 'negative'}`}>
-                      {stock.change >= 0 ? <FiTrendingUp /> : <FiTrendingDown />}
-                      {stock.change >= 0 ? '+' : ''}{stock.changePercent?.toFixed(2)}%
-                    </span>
+                    <span className="stock-price">{stock.price != null ? `₹${stock.price.toFixed(2)}` : 'N/A'}</span>
+                    {stock.changePercent != null && (
+                      <span className={`stock-change ${stock.change >= 0 ? 'positive' : 'negative'}`}>
+                        {stock.change >= 0 ? <FiTrendingUp /> : <FiTrendingDown />}
+                        {stock.change >= 0 ? '+' : ''}{stock.changePercent?.toFixed(2)}%
+                      </span>
+                    )}
                   </div>
                 </div>
               ))}

@@ -5,6 +5,7 @@ Handles news-related API endpoints
 
 from flask import Blueprint, jsonify, request, current_app
 from services.newsapi_service import NewsAPIService
+from services.news_service import get_news_service
 import logging
 import traceback
 
@@ -19,7 +20,9 @@ news_bp = Blueprint("news", __name__, url_prefix="/api/news")
 def get_latest_news():
     """
     GET /api/news
-    Fetch latest stock market news from NewsAPI.org.
+    Fetch latest stock market news.
+    Primary source: Alpha Vantage NEWS_SENTIMENT (includes sentiment labels).
+    Fallback source: NewsAPI.org (labels may be defaulted).
     
     Query Parameters:
         - limit (optional): Number of articles to return (default: 20, max: 100)
@@ -38,17 +41,33 @@ def get_latest_news():
                 "error": "Limit must be between 1 and 100"
             }), 400
         
-        # Get NewsAPI key from config
-        newsapi_key = current_app.config.get("NEWSAPI_KEY")
-        if not newsapi_key:
-            return jsonify({
-                "success": False,
-                "error": "NewsAPI key not configured"
-            }), 500
-        
-        # Get news from NewsAPI.org
-        news_service = NewsAPIService(newsapi_key)
-        result = news_service.fetch_latest_news(limit=limit)
+        # Prefer Alpha Vantage because it returns article-level sentiment labels.
+        news_api_key = current_app.config.get("NEWS_API_KEY")
+        news_api_url = current_app.config.get("NEWS_API_URL")
+        result = None
+
+        if news_api_key and news_api_url:
+            try:
+                alpha_service = get_news_service(news_api_key, news_api_url)
+                result = alpha_service.fetch_latest_news(category=request.args.get("category"), limit=limit)
+                if result.get("success"):
+                    result["provider"] = "alphavantage"
+            except Exception as alpha_exc:
+                logger.warning(f"Alpha Vantage news failed, falling back to NewsAPI: {alpha_exc}")
+
+        # Fallback: NewsAPI.org
+        if not result or not result.get("success"):
+            newsapi_key = current_app.config.get("NEWSAPI_KEY")
+            if not newsapi_key:
+                return jsonify({
+                    "success": False,
+                    "error": "No configured news provider is available"
+                }), 500
+
+            news_service = NewsAPIService(newsapi_key)
+            result = news_service.fetch_latest_news(limit=limit)
+            if result.get("success"):
+                result["provider"] = "newsapi"
         
         # Return response
         if result["success"]:

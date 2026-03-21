@@ -182,31 +182,32 @@ def compute_sentiment_score(analyzed: list[dict]) -> dict:
     n = len(analyzed)
     avg_score = sum(scores) / n
 
-    pos_pct = round((total_pos / n) * 100, 1)
-    neu_pct = round((total_neu / n) * 100, 1)
-    neg_pct = round((total_neg / n) * 100, 1)
+    pos_pct_raw = (total_pos / n) * 100
+    neu_pct_raw = (total_neu / n) * 100
+    neg_pct_raw = (total_neg / n) * 100
 
-    # Step 7: nuanced sentiment labels
-    # If the leading category has a clear majority (>= 50%) use strong labels,
-    # otherwise fall back to nuanced / hedged labels.
-    top_pct = max(pos_pct, neu_pct, neg_pct)
-    has_clear_majority = top_pct >= 50
+    pos_pct = round(pos_pct_raw, 1)
+    neu_pct = round(neu_pct_raw, 1)
+    neg_pct = round(neg_pct_raw, 1)
 
-    if has_clear_majority:
-        if avg_score > 0.2:
-            overall = "Bullish"
-        elif avg_score < -0.2:
-            overall = "Bearish"
-        else:
-            overall = "Neutral"
+    # Step 7: label with majority first, then score thresholds.
+    if pos_pct_raw >= 50 and pos_pct_raw >= neg_pct_raw and pos_pct_raw >= neu_pct_raw:
+        overall = "Bullish"
+    elif neg_pct_raw >= 50 and neg_pct_raw >= pos_pct_raw and neg_pct_raw >= neu_pct_raw:
+        overall = "Bearish"
+    elif neu_pct_raw >= 50 and neu_pct_raw >= pos_pct_raw and neu_pct_raw >= neg_pct_raw:
+        overall = "Neutral"
     else:
-        # No single category dominates — use nuanced labels
-        if avg_score > 0.1:
+        if avg_score > 0.5:
+            overall = "Bullish"
+        elif 0.3 < avg_score <= 0.5:
             overall = "Slightly Bullish"
-        elif avg_score < -0.1:
+        elif -0.3 <= avg_score <= 0.3:
+            overall = "Neutral"
+        elif -0.5 <= avg_score < -0.3:
             overall = "Slightly Bearish"
         else:
-            overall = "Mixed"
+            overall = "Bearish"
 
     return {
         "positive_percent":  pos_pct,

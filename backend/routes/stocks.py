@@ -6,11 +6,14 @@ Handles real-time stock data fetching from 5paisa API
 import os
 import sys
 from flask import Blueprint, request, jsonify
+from flask_jwt_extended import jwt_required, get_jwt_identity
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from services.market_service import market_service
 from services.script_master_service import script_master_service
+from app import db
+from models import Watchlist
 
 # Create stocks blueprint with /api/stocks prefix
 stocks_bp = Blueprint("stocks", __name__, url_prefix="/api/stocks")
@@ -331,3 +334,66 @@ def analyse_sentiment():
     except Exception as e:
         import traceback; traceback.print_exc()
         return jsonify({"error": str(e)}), 500
+
+
+# ─── /watchlist ───────────────────────────────────────────────────────────────
+
+@stocks_bp.route("/watchlist", methods=["GET"])
+@jwt_required()
+def get_watchlist():
+    """GET /api/stocks/watchlist
+    Returns authenticated user's watchlist entries.
+    """
+    user_id = int(get_jwt_identity())
+    items = Watchlist.query.filter_by(user_id=user_id).order_by(Watchlist.created_at.desc()).all()
+    return jsonify({"watchlist": [item.to_dict() for item in items], "count": len(items)}), 200
+
+
+@stocks_bp.route("/watchlist", methods=["POST"])
+@jwt_required()
+def add_watchlist_item():
+    """POST /api/stocks/watchlist
+    Body: { "symbol": "TCS", "name": "Tata Consultancy Services", "exchange": "NSE" }
+    """
+    user_id = int(get_jwt_identity())
+    body = request.get_json(silent=True) or {}
+
+    symbol = str(body.get("symbol", "")).strip().upper()
+    name = str(body.get("name", "")).strip() or None
+    exchange = str(body.get("exchange", "NSE")).strip().upper() or "NSE"
+
+    if not symbol:
+        return jsonify({"error": "Symbol is required"}), 400
+
+    existing = Watchlist.query.filter_by(user_id=user_id, symbol=symbol).first()
+    if existing:
+        return jsonify({"message": "Symbol already in watchlist", "item": existing.to_dict()}), 200
+
+    item = Watchlist(user_id=user_id, symbol=symbol, name=name, exchange=exchange)
+    try:
+        db.session.add(item)
+        db.session.commit()
+        return jsonify({"message": "Added to watchlist", "item": item.to_dict()}), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": "Failed to add watchlist item", "message": str(e)}), 500
+
+
+@stocks_bp.route("/watchlist/<symbol>", methods=["DELETE"])
+@jwt_required()
+def remove_watchlist_item(symbol):
+    """DELETE /api/stocks/watchlist/<symbol>"""
+    user_id = int(get_jwt_identity())
+    target_symbol = symbol.strip().upper()
+
+    item = Watchlist.query.filter_by(user_id=user_id, symbol=target_symbol).first()
+    if not item:
+        return jsonify({"error": "Symbol not found in watchlist"}), 404
+
+    try:
+        db.session.delete(item)
+        db.session.commit()
+        return jsonify({"message": "Removed from watchlist", "symbol": target_symbol}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": "Failed to remove watchlist item", "message": str(e)}), 500

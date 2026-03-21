@@ -1,9 +1,24 @@
-import { Link } from 'react-router-dom'
+import { useEffect } from 'react'
+import { Link, useLocation } from 'react-router-dom'
 import { FiTrendingUp, FiMessageSquare, FiPieChart, FiShield, FiArrowRight } from 'react-icons/fi'
 import Navbar from '../components/Navbar'
 import './LandingPage.css'
 
 const LandingPage = () => {
+  const location = useLocation()
+
+  useEffect(() => {
+    if (!location.hash) {
+      return
+    }
+
+    const sectionId = location.hash.replace('#', '')
+    const target = document.getElementById(sectionId)
+    if (target) {
+      target.scrollIntoView({ behavior: 'smooth' })
+    }
+  }, [location.hash])
+
   const features = [
     {
       icon: <FiTrendingUp />,

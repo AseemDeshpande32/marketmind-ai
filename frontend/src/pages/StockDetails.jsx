@@ -370,18 +370,10 @@ const StockDetails = () => {
 
                   <div className="sentiment-summary">
                     <div className="summary-item">
-                      <span className="summary-label">Sentiment Score</span>
-                      <span className="summary-value">{sentiment.sentiment_score}</span>
-                    </div>
-                    <div className="summary-item">
                       <span className="summary-label">Overall Sentiment</span>
                       <span className={`overall-badge overall-${sentiment.overall_sentiment.toLowerCase().replace(/\s+/g, '-')}`}>
                         {sentiment.overall_sentiment}
                       </span>
-                    </div>
-                    <div className="summary-item">
-                      <span className="summary-label">Articles Analysed</span>
-                      <span className="summary-value">{sentiment.articles_analyzed}</span>
                     </div>
                   </div>
 

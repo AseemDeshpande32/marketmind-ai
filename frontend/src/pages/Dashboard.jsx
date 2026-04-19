@@ -89,9 +89,13 @@ const Dashboard = () => {
         }))
         setNewsItems(transformedNews)
         console.log('News loaded successfully:', transformedNews.length, 'items')
+      } else if (result.success) {
+        // Empty feed is not a failure; show neutral empty-state message.
+        setNewsItems([])
+        setNewsError(null)
       } else {
-        console.error('No news data available')
-        setNewsError('No news available at the moment')
+        console.error('News provider returned error:', result.error)
+        setNewsError(result.error || 'Failed to load news. Please try again later.')
         setNewsItems([])
       }
     } catch (error) {

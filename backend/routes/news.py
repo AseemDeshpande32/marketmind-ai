@@ -5,6 +5,7 @@ Handles news-related API endpoints
 
 from flask import Blueprint, jsonify, request, current_app
 from services.newsapi_service import NewsAPIService
+from services.newsdata_service import NewsDataService
 from services.news_service import get_news_service
 import logging
 import traceback
@@ -22,7 +23,7 @@ def get_latest_news():
     GET /api/news
     Fetch latest stock market news.
     Primary source: Alpha Vantage NEWS_SENTIMENT (includes sentiment labels).
-    Fallback source: NewsAPI.org (labels may be defaulted).
+    Fallback sources: NewsData.io then NewsAPI.org (labels may be defaulted).
     
     Query Parameters:
         - limit (optional): Number of articles to return (default: 20, max: 100)
@@ -52,10 +53,34 @@ def get_latest_news():
                 result = alpha_service.fetch_latest_news(category=request.args.get("category"), limit=limit)
                 if result.get("success"):
                     result["provider"] = "alphavantage"
+                    # If primary provider returns an empty successful payload,
+                    # allow fallback provider to try filling the feed.
+                    alpha_count = result.get("count")
+                    if alpha_count is None:
+                        alpha_count = len(result.get("data") or [])
+                    if alpha_count == 0:
+                        logger.info("Alpha Vantage returned 0 articles; trying fallback providers")
+                        result = None
             except Exception as alpha_exc:
-                logger.warning(f"Alpha Vantage news failed, falling back to NewsAPI: {alpha_exc}")
+                logger.warning(f"Alpha Vantage news failed, falling back to other providers: {alpha_exc}")
 
-        # Fallback: NewsAPI.org
+        # Fallback 1: NewsData.io (India-focused)
+        if not result or not result.get("success"):
+            newsdata_key = current_app.config.get("NEWSDATA_API_KEY")
+            if newsdata_key:
+                try:
+                    newsdata_country = current_app.config.get("NEWSDATA_COUNTRY", "in")
+                    newsdata_service = NewsDataService(newsdata_key, newsdata_country)
+                    result = newsdata_service.fetch_latest_news(
+                        limit=limit,
+                        category=request.args.get("category")
+                    )
+                    if result.get("success"):
+                        result["provider"] = "newsdata"
+                except Exception as newsdata_exc:
+                    logger.warning(f"NewsData fallback failed, trying NewsAPI: {newsdata_exc}")
+
+        # Fallback 2: NewsAPI.org
         if not result or not result.get("success"):
             newsapi_key = current_app.config.get("NEWSAPI_KEY")
             if not newsapi_key:
@@ -108,28 +133,31 @@ def news_health_check():
         JSON response with health status
     """
     try:
-        # Check if API key and URL are configured
-        api_key = current_app.config.get("NEWS_API_KEY")
-        api_url = current_app.config.get("NEWS_API_URL")
-        
-        if not api_key or api_key == "your-news-api-key-here":
+        # Consider healthy if at least one provider is configured.
+        alpha_key = current_app.config.get("NEWS_API_KEY")
+        alpha_url = current_app.config.get("NEWS_API_URL")
+        newsdata_key = current_app.config.get("NEWSDATA_API_KEY")
+        newsapi_key = current_app.config.get("NEWSAPI_KEY")
+
+        provider_config = {
+            "alphavantage": bool(alpha_key and alpha_url),
+            "newsdata": bool(newsdata_key),
+            "newsapi": bool(newsapi_key),
+        }
+
+        if not any(provider_config.values()):
             return jsonify({
                 "status": "unhealthy",
-                "message": "News API key not configured",
-                "configured": False
-            }), 503
-        
-        if not api_url:
-            return jsonify({
-                "status": "unhealthy",
-                "message": "News API URL not configured",
-                "configured": False
+                "message": "No news provider configured",
+                "configured": False,
+                "providers": provider_config,
             }), 503
         
         return jsonify({
             "status": "healthy",
             "message": "News service is configured",
-            "configured": True
+            "configured": True,
+            "providers": provider_config,
         }), 200
     
     except Exception as e:

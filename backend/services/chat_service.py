@@ -40,7 +40,7 @@ logger = logging.getLogger(__name__)
 
 # ── Ollama configuration ───────────────────────────────────────────────────────
 OLLAMA_URL   = "http://localhost:11434/api/generate"
-OLLAMA_MODEL = "gemma3:4b"          # Must match model pulled in Ollama; change if needed
+OLLAMA_MODEL = "gemma3:1b"          # Must match model pulled in Ollama; change if needed
 OLLAMA_TIMEOUT = 120             # seconds — Gemma can be slow on first inference
 
 # ── Common Indian blue-chip stock name → NSE symbol mapping ──────────────────
@@ -156,6 +156,11 @@ _SUGGESTION_RE = [
     re.compile(r"\byears? old\b",                            re.IGNORECASE),
     re.compile(r"\bfor retirement\b",                        re.IGNORECASE),
     re.compile(r"\blong.?term invest\b",                     re.IGNORECASE),
+    # "I have X to invest" / "I want to invest X" — lump sum intent
+    re.compile(r"\bi have.{0,60}\bto invest\b",              re.IGNORECASE),
+    re.compile(r"\bi (want|plan|wish|need).{0,30}\binvest\b", re.IGNORECASE),
+    re.compile(r"\blump.?sum\b",                              re.IGNORECASE),
+    re.compile(r"\bone.?time invest\b",                       re.IGNORECASE),
 ]
 
 
@@ -167,10 +172,10 @@ def _detect_intent(message: str) -> str:
     """
     if any(p.search(message) for p in _COMPARE_RE):
         return "comparison"
-    if any(p.search(message) for p in _PORTFOLIO_RE):
-        return "portfolio"
     if any(p.search(message) for p in _SUGGESTION_RE):
         return "suggestion"
+    if any(p.search(message) for p in _PORTFOLIO_RE):
+        return "portfolio"
     if any(p.search(message) for p in _STOCK_QUERY_RE):
         return "stock_query"
     return "general"
@@ -600,31 +605,54 @@ def _prompt_stock_query(symbol: str, stock: Dict, sentiment: Dict, history: List
     )
 
 
+def _detect_investment_type(message: str) -> str:
+    """Returns 'lump_sum', 'sip', or 'unknown' based on explicit keywords in the message."""
+    msg_lower = message.lower()
+    lump_keywords = ["lump sum", "lumpsum", "lump-sum", "one time", "one-time", "onetime",
+                     "i have", "i want to invest", "to invest"]
+    sip_keywords  = ["sip", "monthly", "per month", "every month", "recurring"]
+    is_sip  = any(k in msg_lower for k in sip_keywords)
+    is_lump = any(k in msg_lower for k in lump_keywords)
+    if is_sip and not is_lump:
+        return "sip"
+    if is_lump and not is_sip:
+        return "lump_sum"
+    if is_lump and is_sip:
+        return "lump_sum"   # explicit lump sum wins
+    return "unknown"
+
+
 def _prompt_suggestion(message: str, history: List[Dict[str, str]] = None) -> str:
     history_str = _format_history(history)
+    inv_type = _detect_investment_type(message)
+
+    if inv_type == "lump_sum":
+        inv_fact = "CONFIRMED FACT: The user is making a ONE-TIME LUMP SUM investment. Do NOT treat it as SIP or monthly. Do NOT mention any monthly SIP amount."
+    elif inv_type == "sip":
+        inv_fact = "CONFIRMED FACT: The user is making a recurring monthly SIP investment."
+    else:
+        inv_fact = "Investment type not explicitly stated — ask the user or treat the amount as lump sum by default."
+
     return (
         "You are MarketMind AI, an expert Indian investment advisor.\n\n"
         f"{history_str}"
-        "A user is asking for investment recommendations. Before answering, apply these "
-        "inference rules to understand their situation:\n\n"
-        "INFERENCE RULES (apply even if not explicitly stated):\n"
-        "• If the user mentions a salary/income/earnings figure → assume it is MONTHLY income.\n"
-        "• If the user says 'invest X' alongside a monthly income → assume X is a MONTHLY investment (SIP), not a one-time lump sum.\n"
-        "• 'passive' investing = index funds / ETFs, low churn. 'aggressive' = higher equity %, growth stocks.\n"
-        "• 'passive aggressive' or 'moderately aggressive' = 70-80% equity, rest debt/gold.\n"
-        "• If no age is mentioned, do not assume one — skip age-based advice.\n"
-        "• If no risk tolerance is stated, infer it from context (e.g. 'safe' = conservative, 'grow fast' = aggressive).\n\n"
+        f"⚠ {inv_fact}\n\n"
+        "STRICT RULES — obey without exception:\n"
+        "• Do NOT invent a monthly income or salary unless the user explicitly mentioned it.\n"
+        "• Do NOT assume any age unless the user mentioned it.\n"
+        "• If the investment is lump sum, never suggest a 'SIP amount per month' — suggest how to deploy the lump sum instead.\n\n"
         f"User's query: {message}\n\n"
         "=== INVESTMENT RECOMMENDATION ===\n"
         "Use ONLY bullet points (• ). No paragraphs. 2-3 bullets per section max.\n\n"
         "**1. Investor Profile**\n"
-        "• Monthly income, monthly investment amount, inferred risk profile — state your inferences clearly.\n\n"
+        "• Investment amount and type (lump sum or SIP), age if mentioned, inferred risk profile. Only include income if the user stated it — do NOT fabricate it.\n\n"
         "**2. Recommended Allocation**\n"
         "• % split: large-cap equity, mid-cap, debt/bonds, gold — tailored to their risk profile.\n\n"
         "**3. Specific Picks**\n"
         "• 3-4 specific NSE stocks or index funds with one-line reason each.\n\n"
         "**4. Investment Strategy**\n"
-        "• SIP amount per month, time horizon, when to review.\n\n"
+        "• If lump sum: suggest how to deploy it (staggered entry / all-at-once), time horizon, when to review.\n"
+        "• If SIP: monthly amount, time horizon, when to review.\n\n"
         "**5. Key Caution**\n"
         "• 2 risks to be aware of before investing.\n\n"
         "Total response under 280 words. All amounts in INR. Note this is educational, not SEBI-registered advice."

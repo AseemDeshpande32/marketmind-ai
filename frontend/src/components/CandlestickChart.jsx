@@ -1,10 +1,17 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { createChart } from 'lightweight-charts';
-import { io } from 'socket.io-client';
 import API_BASE_URL from '../config/api';
 import './CandlestickChart.css';
 
 const INTERVALS = ['1m', '5m', '15m', '30m', '1H', '1D'];
+const REFRESH_INTERVAL_MS = {
+  '1m': 60 * 1000,
+  '5m': 5 * 60 * 1000,
+  '15m': 15 * 60 * 1000,
+  '30m': 30 * 60 * 1000,
+  '1H': 60 * 60 * 1000,
+  '1D': 24 * 60 * 60 * 1000,
+};
 
 /**
  * CandlestickChart
@@ -111,63 +118,18 @@ export default function CandlestickChart({ scripCode, exchange = 'N', symbol = '
     };
   }, []);
 
-  // ── (re)fetch when interval or scripCode changes ───────────────────────────
-  useEffect(() => { fetchCandles(); }, [fetchCandles]);
-
-  // ── WebSocket for real-time candle updates ─────────────────────────────────
+  // ── Auto-refresh by selected chart interval ─────────────────────────────────
   useEffect(() => {
-    if (!scripCode || interval !==  '1D') {
-      // Only enable live updates for 1D interval (intraday)
-      return;
-    }
+    if (!scripCode) return;
 
-    const WS_URL = API_BASE_URL.replace('/api', '').replace('http', 'ws');
-    const socket = io(WS_URL, {
-      transports: ['websocket', 'polling']
-    });
+    fetchCandles();
+    const refreshMs = REFRESH_INTERVAL_MS[interval] || REFRESH_INTERVAL_MS['1m'];
+    const timerId = setInterval(() => {
+      fetchCandles();
+    }, refreshMs);
 
-    socket.on('connect', () => {
-      console.log('[Chart WS] Connected');
-      // Subscribe to live updates
-      socket.emit('subscribe_stock', {
-        scrip_code: scripCode,
-        exchange: exchange,
-        exchange_type: 'C'
-      });
-    });
-
-    socket.on('candle_update', (data) => {
-      // Only process updates for current scrip
-      if (data.scrip_code !== scripCode) return;
-      
-      // Update the chart with new candle data
-      if (seriesRef.current) {
-        try {
-          seriesRef.current.update({
-            time: data.time,
-            open: data.open,
-            high: data.high,
-            low: data.low,
-            close: data.close
-          });
-          setLastUpdated(new Date().toLocaleTimeString());
-        } catch (err) {
-          console.error('[Chart WS] Update error:', err);
-        }
-      }
-    });
-
-    socket.on('disconnect', () => {
-      console.log('[Chart WS] Disconnected');
-    });
-
-    return () => {
-      if (scripCode) {
-        socket.emit('unsubscribe_stock', { scrip_code: scripCode });
-      }
-      socket.disconnect();
-    };
-  }, [scripCode, exchange, interval]);
+    return () => clearInterval(timerId);
+  }, [scripCode, interval, fetchCandles]);
 
   return (
     <div className="candlestick-chart-wrapper">

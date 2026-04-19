@@ -12,6 +12,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from services.market_service import market_service
 from services.script_master_service import script_master_service
+from services.fundamentals_service import fundamentals_service
 from app import db
 from models import Watchlist
 
@@ -26,13 +27,17 @@ def _safe_float(value, default=0.0):
         return default
 
 
-def _snapshot_to_dict(symbol, scrip_code, market_data, exchange="NSE"):
+def _snapshot_to_dict(symbol, scrip_code, market_data, exchange="NSE", exchange_code="N", exchange_type="C"):
     last_rate  = _safe_float(market_data.get("LastTradedPrice") or market_data.get("LastRate"))
     open_rate  = _safe_float(market_data.get("Open") or market_data.get("OpenRate"))
     high       = _safe_float(market_data.get("High"))
     low        = _safe_float(market_data.get("Low"))
     prev_close = _safe_float(market_data.get("PClose"))
     volume     = _safe_float(market_data.get("Volume") or market_data.get("TotalQty"), 0)
+    if volume <= 0:
+        fallback_volume = market_service.get_alphavantage_eod_volume(scrip_code, exchange_code)
+        if fallback_volume is not None:
+            volume = fallback_volume
     price_change = last_rate - prev_close
     pct = (price_change / prev_close * 100) if prev_close else 0
     return {
@@ -138,7 +143,7 @@ def get_5paisa_snapshot(scrip_code):
     exchange_type = request.args.get("exchange_type", "C")
     try:
         snap = market_service.get_market_snapshot(scrip_code, exchange, exchange_type)
-        formatted = market_service.format_stock_data(snap)
+        formatted = market_service.format_stock_data(snap, scrip_code, exchange, exchange_type)
         if not formatted:
             return jsonify({"error": "No data"}), 404
         return jsonify(formatted), 200
@@ -231,7 +236,7 @@ def get_stock_by_name(symbol):
         if not data_arr:
             return jsonify({"error": "No market data"}), 404
 
-        return jsonify(_snapshot_to_dict(symbol, sc, data_arr[0], exch_str)), 200
+        return jsonify(_snapshot_to_dict(symbol, sc, data_arr[0], exch_str, exch_code, "C")), 200
 
     except Exception as e:
         import traceback; traceback.print_exc()
@@ -261,6 +266,32 @@ def get_5paisa_historical(scrip_code):
         candles = market_service.format_historical_data(raw)
         return jsonify({"scripCode": scrip_code, "interval": interval,
                         "candles": candles, "count": len(candles)}), 200
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
+# ─── /fundamentals ──────────────────────────────────────────────────────────
+
+@stocks_bp.route("/fundamentals", methods=["GET"])
+def get_fundamentals():
+    """GET /api/stocks/fundamentals?symbol=TCS&exchange=N
+    Returns fundamental metrics: P/E, EPS, Book Value, Market Cap
+    """
+    symbol   = request.args.get("symbol", "").strip().upper()
+    exchange = request.args.get("exchange", "N").strip().upper()
+
+    if not symbol:
+        return jsonify({"error": "Missing stock symbol"}), 400
+
+    try:
+        exch_code = "N" if exchange in ("N", "NSE") else "B"
+        result = fundamentals_service.get_fundamentals(symbol, exch_code)
+        
+        if result.get("error"):
+            return jsonify(result), 404
+        
+        return jsonify(result), 200
     except Exception as e:
         import traceback; traceback.print_exc()
         return jsonify({"error": str(e)}), 500
@@ -297,7 +328,7 @@ def get_trending_stocks():
             data_arr = (snap.get("body") or snap).get("Data", [])
             if not data_arr:
                 continue
-            results.append(_snapshot_to_dict(sym, sc, data_arr[0], "NSE"))
+            results.append(_snapshot_to_dict(sym, sc, data_arr[0], "NSE", "N", "C"))
         except Exception:
             continue
 

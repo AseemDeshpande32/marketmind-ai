@@ -35,12 +35,13 @@ from typing import Any, Dict, Generator, List
 from services.market_service import market_service
 from services.script_master_service import script_master_service
 from services.sentiment_service import run_sentiment_pipeline
+from services.fundamentals_service import fundamentals_service
 
 logger = logging.getLogger(__name__)
 
 # ── Ollama configuration ───────────────────────────────────────────────────────
 OLLAMA_URL   = "http://localhost:11434/api/generate"
-OLLAMA_MODEL = "gemma3:1b"          # Must match model pulled in Ollama; change if needed
+OLLAMA_MODEL = "gemma3:4b"          # Must match model pulled in Ollama; change if needed
 OLLAMA_TIMEOUT = 120             # seconds — Gemma can be slow on first inference
 
 # ── Common Indian blue-chip stock name → NSE symbol mapping ──────────────────
@@ -79,6 +80,11 @@ KNOWN_STOCKS: Dict[str, str] = {
     "bharti airtel":           "BHARTIARTL",
     "airtel":                  "BHARTIARTL",
     "adani ports":             "ADANIPORTS",
+    "adani green":             "ADANIGREEN",
+    "adani green energy":      "ADANIGREEN",
+    "adani enterprises":       "ADANIENT",
+    "adani power":             "ADANIPOWER",
+    "adani energy":            "ADANIENSOL",
     "larsen":                  "LT",
     "l&t":                     "LT",
     "asian paints":            "ASIANPAINT",
@@ -110,6 +116,71 @@ KNOWN_STOCKS: Dict[str, str] = {
     "godrej":                  "GODREJCP",
     "marico":                  "MARICO",
 }
+
+# Deterministic sector map to avoid LLM-based sector mislabeling.
+KNOWN_SECTORS: Dict[str, str] = {
+    "RELIANCE": "Energy",
+    "ONGC": "Energy",
+    "BPCL": "Energy",
+    "IOC": "Energy",
+    "COALINDIA": "Energy",
+    "ADANIGREEN": "Energy",
+    "ADANIPOWER": "Energy",
+    "NTPC": "Utilities",
+    "POWERGRID": "Utilities",
+    "TCS": "Information Technology",
+    "INFY": "Information Technology",
+    "WIPRO": "Information Technology",
+    "HCLTECH": "Information Technology",
+    "TECHM": "Information Technology",
+    "LTIM": "Information Technology",
+    "MPHASIS": "Information Technology",
+    "HDFCBANK": "Financial Services",
+    "ICICIBANK": "Financial Services",
+    "SBIN": "Financial Services",
+    "AXISBANK": "Financial Services",
+    "KOTAKBANK": "Financial Services",
+    "BAJFINANCE": "Financial Services",
+    "ASIANPAINT": "Consumer Goods",
+    "HINDUNILVR": "Consumer Goods",
+    "ITC": "Consumer Goods",
+    "NESTLEIND": "Consumer Goods",
+    "BRITANNIA": "Consumer Goods",
+    "DABUR": "Consumer Goods",
+    "GODREJCP": "Consumer Goods",
+    "MARICO": "Consumer Goods",
+    "MARUTI": "Automobile",
+    "BAJAJ-AUTO": "Automobile",
+    "HEROMOTOCO": "Automobile",
+    "TATAMOTORS": "Automobile",
+    "TATASTEEL": "Metals",
+    "ULTRACEMCO": "Materials",
+    "LT": "Industrials",
+    "ADANIPORTS": "Industrials",
+    "SIEMENS": "Industrials",
+    "PIDILITIND": "Chemicals",
+    "SUNPHARMA": "Healthcare",
+    "DRREDDY": "Healthcare",
+    "BHARTIARTL": "Telecommunication",
+    "TITAN": "Consumer Discretionary",
+    "HAVELLS": "Consumer Durables",
+    "ABFRL": "Consumer Discretionary",
+    "MRF": "Automobile",
+}
+
+
+def _get_sector_for_symbol(symbol: str, exchange_code: str = "N") -> str:
+    # Manual map remains a deterministic override for known names.
+    mapped = KNOWN_SECTORS.get(symbol.upper())
+    if mapped:
+        return mapped
+
+    # Yahoo Finance classification for symbols not present in manual map.
+    sector_data = fundamentals_service.get_sector_classification(symbol, exchange_code)
+    if not sector_data.get("error") and sector_data.get("sector"):
+        return str(sector_data.get("sector"))
+
+    return "Unclassified"
 
 # ── Intent detection patterns ─────────────────────────────────────────────────
 _COMPARE_RE = [
@@ -208,13 +279,187 @@ def _extract_symbols(message: str) -> List[str]:
     return found
 
 
+def _resolve_single_symbol(message: str) -> str | None:
+    """
+    Resolve one symbol from natural-language text.
+    Priority:
+      1) Explicit mapping / uppercase ticker extraction
+      2) ScripMaster fuzzy search with normalized query text
+    """
+    symbols = _extract_symbols(message)
+    if symbols:
+        return symbols[0]
+
+    lower_msg = message.lower()
+    normalized = re.sub(
+        r"\b(what|whats|what's|teh|the|current|latest|price|stock|share|quote|of|for|is|tell|me|about|today|now|nse|bse|inr|pls|please)\b",
+        " ",
+        lower_msg,
+        flags=re.IGNORECASE,
+    )
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    if not normalized:
+        return None
+
+    # Try longest phrase first, then shorter trailing windows.
+    candidates = [normalized]
+    words = normalized.split()
+    for size in (4, 3, 2):
+        if len(words) >= size:
+            candidates.append(" ".join(words[-size:]))
+
+    # Add common singular/plural variants (energy/energies, industry/industries)
+    variant_candidates: List[str] = []
+    for q in list(candidates):
+        if " energy" in q or q.endswith("energy"):
+            variant_candidates.append(q.replace("energy", "energies"))
+        if " energies" in q or q.endswith("energies"):
+            variant_candidates.append(q.replace("energies", "energy"))
+        if " industry" in q or q.endswith("industry"):
+            variant_candidates.append(q.replace("industry", "industries"))
+        if " industries" in q or q.endswith("industries"):
+            variant_candidates.append(q.replace("industries", "industry"))
+    candidates.extend(variant_candidates)
+
+    seen = set()
+    for q in candidates:
+        if q in seen:
+            continue
+        seen.add(q)
+        try:
+            matches = script_master_service.search_stock(
+                q,
+                exchange="N",
+                exchange_type="C",
+                limit=1,
+            )
+            if matches:
+                symbol = (matches[0].get("symbolRoot") or "").strip().upper()
+                if symbol:
+                    logger.info("[CHAT] Resolved symbol via scrip search: query='%s' -> %s", q, symbol)
+                    return symbol
+        except Exception as exc:
+            logger.warning("[CHAT] Symbol resolve search failed for '%s': %s", q, exc)
+
+    # Last fallback: search by meaningful tokens and pick a confident match.
+    tokens = [t for t in re.findall(r"[A-Za-z]{4,}", normalized) if t.lower() not in {"stock", "share", "price", "listed"}]
+    for tok in tokens:
+        try:
+            matches = script_master_service.search_stock(
+                tok,
+                exchange="N",
+                exchange_type="C",
+                limit=3,
+            )
+            if len(matches) == 1:
+                symbol = (matches[0].get("symbolRoot") or "").strip().upper()
+                if symbol:
+                    logger.info("[CHAT] Resolved symbol via token fallback: token='%s' -> %s", tok, symbol)
+                    return symbol
+            if matches:
+                first = matches[0]
+                full_name = (first.get("fullName") or "").upper()
+                symbol = (first.get("symbolRoot") or "").strip().upper()
+                if symbol and tok.upper() in full_name:
+                    logger.info("[CHAT] Resolved symbol via token ranked fallback: token='%s' -> %s", tok, symbol)
+                    return symbol
+        except Exception as exc:
+            logger.warning("[CHAT] Token fallback search failed for '%s': %s", tok, exc)
+
+    return None
+
+
+def _is_price_only_query(message: str) -> bool:
+    """
+    Detect whether the user is asking only for a quick quote/price.
+    """
+    msg = message.lower()
+
+    price_signals = [
+        "price",
+        "current price",
+        "stock price",
+        "quote",
+        "trading at",
+        "ltp",
+    ]
+    deep_analysis_signals = [
+        "analyze",
+        "analysis",
+        "outlook",
+        "risk",
+        "sentiment",
+        "fundamental",
+        "technical",
+        "compare",
+        "portfolio",
+        "should i buy",
+    ]
+
+    has_price_signal = any(s in msg for s in price_signals)
+    wants_deep_analysis = any(s in msg for s in deep_analysis_signals)
+    return has_price_signal and not wants_deep_analysis
+
+
+def _is_basic_stock_fact_query(message: str) -> bool:
+    """
+    Detect simple stock fact queries that should return strict live snapshot output
+    instead of long free-form model analysis.
+    """
+    msg = message.lower()
+    basic_patterns = [
+        r"\bwhat is\b.*\bstock\b",
+        r"\babout\b.*\bstock\b",
+        r"\blisted\b.*\bstock\b",
+        r"\bstock\s+info\b",
+        r"\bstock\s+details\b",
+    ]
+    deep_patterns = [
+        r"\banaly(s|z)e\b",
+        r"\bvaluation\b",
+        r"\boutlook\b",
+        r"\brisk\b",
+        r"\bsentiment\b",
+        r"\bcompare\b",
+        r"\bportfolio\b",
+    ]
+    is_basic = any(re.search(p, msg, re.IGNORECASE) for p in basic_patterns)
+    is_deep = any(re.search(p, msg, re.IGNORECASE) for p in deep_patterns)
+    return is_basic and not is_deep
+
+
+def _build_stock_snapshot_response(symbol: str, stock: Dict[str, Any]) -> str:
+    """Build a deterministic stock snapshot response from live API-backed fields."""
+    if stock.get("error"):
+        return f"- {symbol}: Live data unavailable ({stock.get('error')})."
+
+    sign = "+" if stock.get("changePercent", 0) >= 0 else ""
+    lines = [
+        f"- {symbol} current price: ₹{stock.get('price', 0):,.2f}",
+        f"- Day change: {sign}{stock.get('changePercent', 0):.2f}% (₹{stock.get('change', 0):+.2f})",
+        f"- Open/High/Low: ₹{stock.get('open', 0):,.2f} / ₹{stock.get('high', 0):,.2f} / ₹{stock.get('low', 0):,.2f}",
+        f"- Volume: {stock.get('volume', 0):,}",
+    ]
+
+    if stock.get("pe_ratio") is not None:
+        lines.append(f"- P/E: {stock.get('pe_ratio'):.2f}")
+    if stock.get("eps") is not None:
+        lines.append(f"- EPS: ₹{stock.get('eps'):.2f}")
+    if stock.get("book_value") is not None:
+        lines.append(f"- Book Value: ₹{stock.get('book_value'):.2f}")
+    if stock.get("sector"):
+        lines.append(f"- Sector: {stock.get('sector')}")
+
+    lines.append("- Source: 5paisa live market data (+ Yahoo for fundamentals/sector where applicable)")
+    return "\n".join(lines)
+
+
 def _extract_portfolio_items(message: str) -> List[Dict[str, Any]]:
     """
     Parse portfolio items from messages such as:
+      "I have 100 shares of reliance and 50 of tcs"
+      "100 shares of reliance, 50 shares tcs, 100 Asian paints, 1 MRF"
       "TCS 5, Infosys 10, Reliance 3"
-      "TCS:5 INFY:10 RELIANCE:3"
-      "I have TCS - 5 shares and Infosys - 10 shares"
-      "10 shares of MRF, 15 shares of Reliance, 10 shares of TCS"
     Returns list of dicts: { symbol, name, qty }
     """
     qty_by_symbol: Dict[str, Dict[str, Any]] = {}
@@ -233,63 +478,49 @@ def _extract_portfolio_items(message: str) -> List[Dict[str, Any]]:
         if qty <= 0 or not clean_name:
             return
 
-        # Reject multi-word names that are too long (likely extracted junk)
+        # Reject multi-word names that are too long
         words = clean_name.split()
         if len(words) > 3:
             logger.debug(f"[CHAT] Portfolio: skipping name with >3 words: {clean_name}")
             return
 
         symbol = _resolve_symbol(clean_name)
-
-        # STRICT VALIDATION: Only accept known stocks or valid 2-10 char uppercase symbols
         known_symbols = set(KNOWN_STOCKS.values())
         
-        # Accept if it's a known stock symbol
+        # Accept if known stock symbol
         if symbol in known_symbols:
             if symbol in qty_by_symbol:
                 qty_by_symbol[symbol]["qty"] += qty
                 return
-            qty_by_symbol[symbol] = {
-                "symbol": symbol,
-                "name": clean_name,
-                "qty": qty,
-            }
+            qty_by_symbol[symbol] = {"symbol": symbol, "name": clean_name, "qty": qty}
             return
 
-        # Accept if it's a plausible NSE symbol (2-10 uppercase letters, hyphens, no lowercase)
+        # Accept if valid 2-10 char NSE symbol
         if re.match(r"^[A-Z][A-Z0-9\-]{0,9}$", symbol) and "-" not in symbol.lstrip("_"):
             if symbol in qty_by_symbol:
                 qty_by_symbol[symbol]["qty"] += qty
                 return
-            qty_by_symbol[symbol] = {
-                "symbol": symbol,
-                "name": clean_name,
-                "qty": qty,
-            }
+            qty_by_symbol[symbol] = {"symbol": symbol, "name": clean_name, "qty": qty}
             return
 
-        # Otherwise reject as junk
         logger.debug(f"[CHAT] Portfolio: rejecting invalid symbol: {symbol} from '{clean_name}'")
 
-    # Pattern 1: name then quantity ("TCS 10", "Reliance:15", "Infosys - 5 shares")
-    # Must have quantity directly after name, optional separator, optional quantity keyword
-    name_first_pat = re.compile(
-        r"\b([A-Za-z][A-Za-z0-9\s&\.\-]{1,20}?)\s*[:\-]?\s*(\d+)\s*(?:shares?|units?)?\b",
+    # PATTERN: Non-greedy quantity-to-name matching
+    # "(\d+)" - quantity (non-greedy)
+    # "\s+(?:shares?|units?|of)?\s*" - separator with optional keywords
+    # "([A-Za-z][A-Za-z0-9\s&\.\-]*?)" - stock name (non-greedy, minimal match)
+    # "(?=\d|\s*$|[,;]|and|analyse)" - lookahead: next is digit, end, comma/semicolon, "and", or "analyse"
+    pattern = re.compile(
+        r"(\d+)\s+(?:shares?|units?|of)?\s*([A-Za-z][A-Za-z0-9\s&\.\-]*?)(?=\s*\d|\s*$|[,;]|and|analyse)",
         re.IGNORECASE,
     )
 
-    # Pattern 2: quantity then name ("10 shares of MRF", "15 units Reliance")
-    # Strict: number + (shares|units) + (of)? + stock name 
-    qty_first_pat = re.compile(
-        r"(\d+)\s+(?:shares?|units?)\s+(?:of\s+)?([A-Za-z][A-Za-z0-9\s\-]{1,20}?)(?=\s*[,\.;]|\s+and|\s*$)",
-        re.IGNORECASE,
-    )
-
-    for qty, raw_name in qty_first_pat.findall(message):
-        _add_item(raw_name, int(qty))
-
-    for raw_name, qty in name_first_pat.findall(message):
-        _add_item(raw_name, int(qty))
+    for qty_str, name in pattern.findall(message):
+        try:
+            qty = int(qty_str)
+            _add_item(name, qty)
+        except ValueError:
+            continue
 
     result = list(qty_by_symbol.values())
     logger.info(f"[CHAT] Portfolio extraction: extracted {len(result)} unique items from message")
@@ -301,45 +532,38 @@ def _extract_portfolio_items(message: str) -> List[Dict[str, Any]]:
 # ── Data-fetching helpers ──────────────────────────────────────────────────────
 def _fetch_stock_info(symbol: str) -> Dict[str, Any]:
     """
-    Fetch current market snapshot for a symbol via the existing 5paisa pipeline.
+    Fetch current market snapshot + fundamentals for a symbol via the existing 5paisa pipeline.
     Returns a clean dict or an error dict if data is unavailable.
     """
     try:
         scrip_code = script_master_service.get_scrip_code(symbol, "N")
+        exchange_code = "N"
         if not scrip_code:
             scrip_code = script_master_service.get_scrip_code(symbol, "B")
+            exchange_code = "B"
         if not scrip_code:
             return {"symbol": symbol, "error": f"'{symbol}' not found in ScripMaster"}
 
-        snap = market_service.get_market_snapshot(scrip_code, "N", "C")
-        data_arr = (snap.get("body") or snap).get("Data", [])
-        if not data_arr:
+        snap = market_service.get_market_snapshot(scrip_code, exchange_code, "C")
+        formatted = market_service.format_stock_data(snap, scrip_code, exchange_code, "C")
+        if not formatted:
             return {"symbol": symbol, "error": "No snapshot data returned"}
 
-        d = data_arr[0]
-
-        def _sf(v, default=0.0):
-            try:
-                return float(v) if v is not None else default
-            except (ValueError, TypeError):
-                return default
-
-        price = _sf(d.get("LastTradedPrice") or d.get("LastRate"))
-        prev  = _sf(d.get("PClose"))
-        chg   = round(price - prev, 2)
-        chg_p = round((chg / prev * 100) if prev else 0.0, 2)
-
-        return {
-            "symbol":        symbol,
-            "price":         round(price, 2),
-            "prevClose":     round(prev, 2),
-            "change":        chg,
-            "changePercent": chg_p,
-            "open":          round(_sf(d.get("Open") or d.get("OpenRate")), 2),
-            "high":          round(_sf(d.get("High")), 2),
-            "low":           round(_sf(d.get("Low")), 2),
-            "volume":        int(_sf(d.get("Volume") or d.get("TotalQty"), 0)),
-        }
+        formatted["symbol"] = symbol
+        formatted["sector"] = _get_sector_for_symbol(symbol, exchange_code)
+        
+        # Fetch fundamentals from Yahoo Finance
+        fundamentals = fundamentals_service.get_fundamentals(symbol, exchange_code)
+        if not fundamentals.get("error"):
+            # Add fundamental metrics to formatted data
+            formatted["pe_ratio"] = fundamentals.get("pe_ratio")
+            formatted["forward_pe"] = fundamentals.get("forward_pe")
+            formatted["eps"] = fundamentals.get("eps")
+            formatted["book_value"] = fundamentals.get("book_value")
+            formatted["market_cap"] = fundamentals.get("market_cap")
+            formatted["fundamentals_source"] = "Yahoo Finance"
+        
+        return formatted
     except Exception as exc:
         logger.warning("[CHAT] _fetch_stock_info(%s) failed: %s", symbol, exc)
         return {"symbol": symbol, "error": str(exc)}
@@ -482,6 +706,21 @@ def _prompt_comparison(
         if s.get("error"):
             return f"{sym}: Live data unavailable — {s['error']}"
         sign = "+" if s.get("changePercent", 0) >= 0 else ""
+        
+        # Format fundamentals if available
+        fundamentals_str = ""
+        if s.get("pe_ratio") is not None or s.get("eps") is not None or s.get("book_value") is not None:
+            fundamentals_str = "  Fundamentals : "
+            parts = []
+            if s.get("pe_ratio") is not None:
+                parts.append(f"P/E {s.get('pe_ratio'):.2f}")
+            if s.get("eps") is not None:
+                parts.append(f"EPS ₹{s.get('eps'):.2f}")
+            if s.get("book_value") is not None:
+                parts.append(f"BV ₹{s.get('book_value'):.2f}")
+            fundamentals_str += " | ".join(parts)
+            fundamentals_str += " (Yahoo Finance)\n"
+        
         return (
             f"{sym}:\n"
             f"  Current Price : ₹{s.get('price', 0):>10,.2f}\n"
@@ -489,6 +728,7 @@ def _prompt_comparison(
             f"  (₹{s.get('change', 0):+.2f})\n"
             f"  Open / High / Low: ₹{s.get('open', 0):,.2f} / "
             f"₹{s.get('high', 0):,.2f} / ₹{s.get('low', 0):,.2f}\n"
+            f"{fundamentals_str}"
             f"  Volume        : {s.get('volume', 0):,}\n"
             f"  News Sentiment: {sent.get('overall_sentiment', 'N/A')} "
             f"(+{sent.get('positive_percent', 0):.0f}% positive / "
@@ -511,7 +751,7 @@ def _prompt_comparison(
         "**2. News Sentiment**\n"
         "• Compare news sentiment outlook and positive/negative split.\n\n"
         "**3. Financial Fundamentals**\n"
-        "• Compare P/E ratio, EPS, revenue growth, and market cap using your knowledge of these companies.\n\n"
+        "• Compare P/E ratio, EPS, book value using data provided + general knowledge of these companies.\n\n"
         "**4. Volume & Activity**\n"
         "• Compare trading volumes and what they signal about investor interest.\n\n"
         "**5. Verdict**\n"
@@ -522,46 +762,158 @@ def _prompt_comparison(
 
 def _prompt_portfolio(items: List[Dict], enriched: List[Dict], history: List[Dict[str, str]] = None) -> str:
     total = sum(i.get("total_value", 0) for i in enriched if not i.get("error"))
+    valid_items = [i for i in enriched if not i.get("error")]
 
-    lines = []
-    for item in enriched:
-        sym = item["symbol"]
-        qty = item["qty"]
-        if item.get("error"):
-            lines.append(f"  {sym} ×{qty}  —  data unavailable ({item['error']})")
-        else:
-            val  = item.get("total_value", 0)
-            wt   = (val / total * 100) if total else 0
-            sign = "+" if item.get("changePercent", 0) >= 0 else ""
-            lines.append(
-                f"  {sym:<14} {qty:>4} shares  @  ₹{item.get('price', 0):>9,.2f}"
-                f"  =  ₹{val:>11,.2f}  ({wt:.1f}% of portfolio)"
-                f"  |  day {sign}{item.get('changePercent', 0):.2f}%"
-            )
+    if not valid_items:
+        return (
+            "You are MarketMind AI. Portfolio data is unavailable. "
+            "Respond in 2 short bullets asking the user to retry with valid NSE/BSE symbols."
+        )
 
-    breakdown = "\n".join(lines)
+    def _valuation_tag(pe: float | None) -> str:
+        if pe is None:
+            return "N/A"
+        if pe >= 25:
+            return "Expensive"
+        if pe >= 18:
+            return "Fair"
+        return "Attractive"
+
+    # Portfolio valuation summary
+    weighted_pe_numerator = 0.0
+    pe_weight_denom = 0.0
+    for item in valid_items:
+        val = float(item.get("total_value", 0) or 0)
+        pe = item.get("pe_ratio")
+        if pe is not None and val > 0:
+            weighted_pe_numerator += float(pe) * val
+            pe_weight_denom += val
+    weighted_avg_pe = (weighted_pe_numerator / pe_weight_denom) if pe_weight_denom > 0 else None
+    portfolio_valuation_tag = _valuation_tag(weighted_avg_pe)
+
+    # Daily PnL snapshot
+    today_pnl = 0.0
+    for item in valid_items:
+        today_pnl += float(item.get("change", 0) or 0) * float(item.get("qty", 0) or 0)
+
+    # Best / worst performer by day return contribution
+    ranked_by_day = sorted(
+        valid_items,
+        key=lambda i: float(i.get("change", 0) or 0) * float(i.get("qty", 0) or 0),
+        reverse=True,
+    )
+    best_item = ranked_by_day[0]
+    worst_item = ranked_by_day[-1]
+
+    # Concentration & sector risk
+    ranked_by_value = sorted(valid_items, key=lambda i: float(i.get("total_value", 0) or 0), reverse=True)
+    largest_holding = ranked_by_value[0]
+    largest_holding_pct = (float(largest_holding.get("total_value", 0) or 0) / total * 100) if total else 0.0
+
+    sector_allocation: Dict[str, float] = {}
+    for item in valid_items:
+        sector = item.get("sector") or _get_sector_for_symbol(item.get("symbol", ""), "N")
+        val = float(item.get("total_value", 0) or 0)
+        sector_allocation[sector] = sector_allocation.get(sector, 0.0) + val
+    top_sector, top_sector_value = max(sector_allocation.items(), key=lambda x: x[1])
+    top_sector_pct = (top_sector_value / total * 100) if total else 0.0
+
+    # Risk score out of 10: concentration + valuation driven
+    risk_score = 3.0
+    risk_score += min(3.0, max(0.0, (largest_holding_pct - 25.0) / 10.0))
+    risk_score += min(2.5, max(0.0, (top_sector_pct - 35.0) / 10.0))
+    if weighted_avg_pe is not None:
+        risk_score += min(1.5, max(0.0, (weighted_avg_pe - 22.0) / 8.0))
+    risk_score = round(min(10.0, max(1.0, risk_score)), 1)
+
+    # Top holdings breakdown (top 4)
+    top_holdings_lines: List[str] = []
+    for item in ranked_by_value[:3]:
+        wt = (float(item.get("total_value", 0) or 0) / total * 100) if total else 0.0
+        holding_tag = _valuation_tag(item.get("pe_ratio"))
+        top_holdings_lines.append(
+            f"- {item.get('symbol')} - {wt:.1f}% - {holding_tag}"
+        )
+    top_holdings_block = "\n".join(top_holdings_lines)
+
+    others_items = ranked_by_value[3:]
+    others_value = sum(float(item.get("total_value", 0) or 0) for item in others_items)
+    others_pct = (others_value / total * 100) if total else 0.0
+    others_count = len(others_items)
+    others_symbols = ", ".join(item.get("symbol") for item in others_items[:6])
+    if others_count > 6:
+        others_symbols += ", ..."
+    if not others_symbols:
+        others_symbols = "None"
+
+    # Smart recommendations (deterministic hints)
+    recommendations: List[str] = []
+    if largest_holding_pct >= 35:
+        recommendations.append(f"Trim overweight {largest_holding.get('symbol')} ({largest_holding_pct:.1f}% allocation)")
+    if top_sector_pct >= 50:
+        recommendations.append(f"Add a defensive non-{top_sector} sector to reduce concentration")
+    if weighted_avg_pe is not None and weighted_avg_pe >= 25:
+        recommendations.append("Rebalance into fair-value names; portfolio valuation is elevated")
+    if not recommendations:
+        recommendations.append("Maintain allocation and rebalance monthly")
+    recommendations = recommendations[:3]
+    recommendations_block = "\n".join(f"- {r}" for r in recommendations)
+
+    gain_loss_label = "Gain" if today_pnl >= 0 else "Loss"
     history_str = _format_history(history)
+    weighted_pe_line = f"Weighted Avg P/E: {weighted_avg_pe:.2f}" if weighted_avg_pe is not None else "Weighted Avg P/E: N/A"
+
     return (
         "You are MarketMind AI, an expert Indian portfolio analyst.\n\n"
         f"{history_str}"
-        "A user has shared their stock portfolio. Below is real-time market data "
-        "for each holding. Provide a concise portfolio analysis using bullet points only.\n\n"
-        "=== PORTFOLIO HOLDINGS ===\n"
-        f"{breakdown}\n\n"
-        f"Total Portfolio Value: ₹{total:,.2f}\n\n"
-        "=== PORTFOLIO ANALYSIS ===\n"
-        "Use ONLY bullet points (• ). No paragraphs. 2-3 bullets per section max.\n\n"
-        "**1. Portfolio Summary**\n"
-        "• Total value, number of holdings, best and worst performer today.\n\n"
-        "**2. Holdings Breakdown**\n"
-        "• Each stock: weight %, today's change, and one-line status.\n\n"
-        "**3. Diversification**\n"
-        "• Sector spread, concentration risk, any over-exposure.\n\n"
-        "**4. Risk Level**\n"
-        "• Low / Medium / High with one-line reason.\n\n"
-        "**5. Suggestions**\n"
-        "• 2-3 specific, actionable recommendations.\n\n"
-        "Total response under 250 words. Use Indian market context (NSE/BSE, INR)."
+        "User wants a structured but insightful portfolio analysis. Follow EXACTLY this format.\n"
+        "Use only bullets and keep it readable, but include enough reasoning to make decisions.\n"
+        "CRITICAL RULES: Only mention stocks that are actually present in the user's portfolio holdings below.\n"
+        "Do NOT introduce new company names, tickers, or example holdings that are not part of the provided list.\n"
+        "IMPORTANT: The following input metrics are INTERNAL CONTEXT only.\n"
+        "Do NOT print them verbatim. Do NOT include any heading like PRECOMPUTED METRICS.\n"
+        "Only use them to produce the final 5 sections.\n\n"
+        "[INTERNAL_INPUT_METRICS]\n"
+        f"Total Value: ₹{total:,.2f}\n"
+        f"Today's Gain/Loss: {gain_loss_label} ₹{abs(today_pnl):,.2f}\n"
+        f"Best Performer: {best_item.get('symbol')} ({best_item.get('changePercent', 0):+.2f}%)\n"
+        f"Worst Performer: {worst_item.get('symbol')} ({worst_item.get('changePercent', 0):+.2f}%)\n"
+        f"{weighted_pe_line}\n"
+        f"Portfolio Valuation Tag: {portfolio_valuation_tag}\n"
+        f"Largest Holding: {largest_holding.get('symbol')} ({largest_holding_pct:.1f}%)\n"
+        f"Sector Concentration: {top_sector} ({top_sector_pct:.1f}%)\n"
+        f"Risk Score: {risk_score}/10\n"
+        f"Top Holdings:\n{top_holdings_block}\n"
+        f"Recommendations:\n{recommendations_block}\n"
+        "[/INTERNAL_INPUT_METRICS]\n\n"
+        "=== REQUIRED RESPONSE FORMAT ===\n"
+        "1. Portfolio Summary\n"
+        "- Total Value\n"
+        "- Best Performing Stock Today\n"
+        "- Worst Performing Stock Today\n"
+        "- Average Portfolio P/E\n\n"
+        "2. Valuation Assessment\n"
+        "- Keep this section short: 2-3 bullets max\n"
+        "- Summarize expensive / fair / attractive holdings\n"
+        "- Use the provided tags only; do not invent extra holdings\n\n"
+        "3. Diversification\n"
+        "- Mention sector spread\n"
+        "- Mention concentration / over-exposure risk\n"
+        "- Keep this section short: 2-3 bullets max\n\n"
+        "4. Breakdown\n"
+        "- Show ONLY the top 3 holdings\n"
+        "- Format: SYMBOL - WEIGHT% - TAG - short reason\n"
+        "- Then show Others as one aggregated bucket for all remaining holdings\n"
+        f"- Others: {others_pct:.1f}% across {others_count} holdings\n"
+        f"- Holdings included: {others_symbols}\n"
+        "- Mention whether Others increases or reduces concentration risk\n\n"
+        "5. Strategic Recommendations\n"
+        "- 3 actionable bullets\n"
+        "- Recommendations must reference only existing holdings or generic sectors.\n"
+        "- Do not add or suggest a specific company ticker that is not already in the portfolio.\n"
+        "- Include one concrete rebalance target split using only current holdings.\n\n"
+        "Strictly follow section names and order above. Keep decision-focused and moderately detailed.\n"
+        "Never output internal tags/blocks such as INTERNAL_INPUT_METRICS or PRECOMPUTED METRICS."
     )
 
 
@@ -570,11 +922,38 @@ def _prompt_stock_query(symbol: str, stock: Dict, sentiment: Dict, history: List
         return _prompt_general(f"Tell me about {symbol} stock listed on NSE India.", history)
 
     sign = "+" if stock.get("changePercent", 0) >= 0 else ""
+    
+    # Build fundamentals section if available
+    fundamentals_section = ""
+    if stock.get("pe_ratio") is not None or stock.get("eps") is not None or stock.get("book_value") is not None:
+        fundamentals_section = "=== FUNDAMENTAL METRICS ===\n"
+        if stock.get("pe_ratio") is not None:
+            fundamentals_section += f"P/E Ratio      : {stock.get('pe_ratio'):.2f}\n"
+        if stock.get("forward_pe") is not None:
+            fundamentals_section += f"Forward P/E    : {stock.get('forward_pe'):.2f}\n"
+        if stock.get("eps") is not None:
+            fundamentals_section += f"EPS            : ₹{stock.get('eps'):.2f}\n"
+        if stock.get("book_value") is not None:
+            fundamentals_section += f"Book Value     : ₹{stock.get('book_value'):.2f}\n"
+        if stock.get("market_cap") is not None:
+            market_cap = stock.get('market_cap')
+            if market_cap >= 1e12:
+                cap_str = f"₹{market_cap/1e12:.2f}T"
+            elif market_cap >= 1e9:
+                cap_str = f"₹{market_cap/1e9:.2f}B"
+            else:
+                cap_str = f"₹{market_cap:,.0f}"
+            fundamentals_section += f"Market Cap     : {cap_str}\n"
+        fundamentals_section += "Source         : Yahoo Finance\n\n"
+    
     history_str = _format_history(history)
     return (
         "You are MarketMind AI, an expert Indian stock market analyst.\n\n"
         f"{history_str}"
         f"Below is real-time data and FinBERT news sentiment for {symbol} (NSE).\n\n"
+        "CRITICAL: Use only the exact resolved company symbol/name shown above.\n"
+        "Do NOT mention former names, renamed entities, acquisitions, or company history unless the user explicitly asks for it.\n"
+        "Do NOT guess background facts. Rely only on the live market data and fundamentals shown below.\n\n"
         "=== LIVE MARKET DATA ===\n"
         f"Symbol        : {symbol}\n"
         f"Current Price : ₹{stock.get('price', 0):,.2f}\n"
@@ -583,6 +962,7 @@ def _prompt_stock_query(symbol: str, stock: Dict, sentiment: Dict, history: List
         f"Open          : ₹{stock.get('open', 0):,.2f}\n"
         f"High / Low    : ₹{stock.get('high', 0):,.2f} / ₹{stock.get('low', 0):,.2f}\n"
         f"Volume        : {stock.get('volume', 0):,}\n\n"
+        f"{fundamentals_section}"
         "=== NEWS SENTIMENT ===\n"
         f"Overall       : {sentiment.get('overall_sentiment', 'N/A')}\n"
         f"Breakdown     : +{sentiment.get('positive_percent', 0):.0f}% Positive"
@@ -593,15 +973,44 @@ def _prompt_stock_query(symbol: str, stock: Dict, sentiment: Dict, history: List
         "Use ONLY bullet points (• ). No paragraphs. 2-3 bullets per section max.\n\n"
         "**1. Market Status**\n"
         "• Current price, day change %, and what the movement signals.\n\n"
-        "**2. News Sentiment**\n"
+        "**2. Fundamentals Health**\n"
+        "• P/E valuation (cheap/fair/expensive), EPS trend, book value status using data provided.\n\n"
+        "**3. News Sentiment**\n"
         "• FinBERT score, positive/negative split, investor confidence summary.\n\n"
-        "**3. Technical Snapshot**\n"
+        "**4. Technical Snapshot**\n"
         "• High/low range, volume vs typical, any notable intraday pattern.\n\n"
-        "**4. Short-term Outlook**\n"
+        "**5. Short-term Outlook**\n"
         "• Balanced 1-2 bullet view: bullish factors vs risks.\n\n"
-        "**5. Key Risks**\n"
+        "**6. Key Risks**\n"
         "• 2 main risks investors should watch.\n\n"
-        "Be data-specific. Reference actual numbers. Total response under 200 words."
+        "Be data-specific. Reference actual numbers. Total response under 250 words."
+    )
+
+
+def _prompt_price_quote(symbol: str, stock: Dict, history: List[Dict[str, str]] = None) -> str:
+    """
+    Short prompt for users asking only the current price/quote.
+    """
+    if stock.get("error"):
+        return _prompt_general(f"Tell me the current price of {symbol} on NSE.", history)
+
+    sign = "+" if stock.get("changePercent", 0) >= 0 else ""
+    history_str = _format_history(history)
+    return (
+        "You are MarketMind AI. User asked only for a quick stock quote.\n\n"
+        f"{history_str}"
+        "Respond in 2-4 short bullet points only. Do not give full analysis sections.\n"
+        "Do not add long recommendations, risk commentary, or deep insights unless user asks.\n\n"
+        "CRITICAL: Use only the exact symbol shown below. Do NOT mention former names, company history, or alternative entities.\n\n"
+        "=== QUOTE DATA ===\n"
+        f"Symbol: {symbol}\n"
+        f"Current Price: ₹{stock.get('price', 0):,.2f}\n"
+        f"Day Change: {sign}{stock.get('changePercent', 0):.2f}% (₹{stock.get('change', 0):+.2f})\n"
+        f"Open: ₹{stock.get('open', 0):,.2f}\n"
+        f"High: ₹{stock.get('high', 0):,.2f}\n"
+        f"Low: ₹{stock.get('low', 0):,.2f}\n"
+        f"Volume: {stock.get('volume', 0):,}\n\n"
+        "Return concise quote only."
     )
 
 
@@ -684,13 +1093,12 @@ def process_chat(message: str, history: List[Dict[str, str]] = None) -> Dict[str
     intent = _detect_intent(message)
     logger.info("[CHAT] intent=%s  msg=%.80s…", intent, message)
 
-    # ── General finance Q&A ──────────────────────────────────────────────────
+    # If a general query clearly references a stock, force stock_query path
+    # so the reply is grounded in live API data instead of generic model text.
     if intent == "general":
-        return {
-            "response": _call_ollama(_prompt_general(message, history)),
-            "intent":   "general",
-            "data":     None,
-        }
+        forced_symbol = _resolve_single_symbol(message)
+        if forced_symbol:
+            intent = "stock_query"
 
     # ── Stock comparison ─────────────────────────────────────────────────────
     if intent == "comparison":
@@ -760,19 +1168,21 @@ def process_chat(message: str, history: List[Dict[str, str]] = None) -> Dict[str
 
     # ── Single stock query ───────────────────────────────────────────────────
     if intent == "stock_query":
-        symbols = _extract_symbols(message)
-        if not symbols:
+        symbol = _resolve_single_symbol(message)
+        if not symbol:
             return {
                 "response": _call_ollama(_prompt_general(message, history)),
                 "intent":   "general",
                 "data":     None,
             }
 
-        symbol    = symbols[0]
         stock     = _fetch_stock_info(symbol)
         sentiment = _fetch_sentiment(symbol)
-        prompt    = _prompt_stock_query(symbol, stock, sentiment, history)
-        response  = _call_ollama(prompt)
+        if _is_price_only_query(message) or _is_basic_stock_fact_query(message):
+            response = _build_stock_snapshot_response(symbol, stock)
+        else:
+            prompt = _prompt_stock_query(symbol, stock, sentiment, history)
+            response = _call_ollama(prompt)
 
         return {
             "response": response,
@@ -788,7 +1198,7 @@ def process_chat(message: str, history: List[Dict[str, str]] = None) -> Dict[str
             "data":     None,
         }
 
-    # ── Fallback ─────────────────────────────────────────────────────────────
+    # ── General finance Q&A / fallback ──────────────────────────────────────
     return {
         "response": _call_ollama(_prompt_general(message, history)),
         "intent":   "general",
@@ -813,13 +1223,12 @@ def stream_process_chat(message: str, history: List[Dict[str, str]] = None) -> G
     intent = _detect_intent(message)
     logger.info("[CHAT STREAM] intent=%s  msg=%.80s…", intent, message)
 
-    # ── General finance Q&A ──────────────────────────────────────────────────
+    # If a general query clearly references a stock, force stock_query path
+    # so streaming also stays grounded in live API data.
     if intent == "general":
-        yield {"type": "meta", "intent": "general", "data": None}
-        for token in _stream_ollama(_prompt_general(message, history)):
-            yield {"type": "token", "text": token}
-        yield {"type": "done"}
-        return
+        forced_symbol = _resolve_single_symbol(message)
+        if forced_symbol:
+            intent = "stock_query"
 
     # ── Stock comparison ─────────────────────────────────────────────────────
     if intent == "comparison":
@@ -879,21 +1288,24 @@ def stream_process_chat(message: str, history: List[Dict[str, str]] = None) -> G
 
     # ── Single stock query ───────────────────────────────────────────────────
     if intent == "stock_query":
-        symbols = _extract_symbols(message)
-        if not symbols:
+        symbol = _resolve_single_symbol(message)
+        if not symbol:
             yield {"type": "meta", "intent": "general", "data": None}
             for token in _stream_ollama(_prompt_general(message, history)):
                 yield {"type": "token", "text": token}
             yield {"type": "done"}
             return
 
-        symbol    = symbols[0]
         stock     = _fetch_stock_info(symbol)
         sentiment = _fetch_sentiment(symbol)
 
         yield {"type": "meta", "intent": "stock_query", "data": {"stock": stock, "sentiment": sentiment}}
-        for token in _stream_ollama(_prompt_stock_query(symbol, stock, sentiment, history)):
-            yield {"type": "token", "text": token}
+        if _is_price_only_query(message) or _is_basic_stock_fact_query(message):
+            yield {"type": "token", "text": _build_stock_snapshot_response(symbol, stock)}
+        else:
+            stream_prompt = _prompt_stock_query(symbol, stock, sentiment, history)
+            for token in _stream_ollama(stream_prompt):
+                yield {"type": "token", "text": token}
         yield {"type": "done"}
         return
 
@@ -905,7 +1317,7 @@ def stream_process_chat(message: str, history: List[Dict[str, str]] = None) -> G
         yield {"type": "done"}
         return
 
-    # ── Fallback ─────────────────────────────────────────────────────────────
+    # ── General finance Q&A / fallback ──────────────────────────────────────
     yield {"type": "meta", "intent": "general", "data": None}
     for token in _stream_ollama(_prompt_general(message, history)):
         yield {"type": "token", "text": token}
